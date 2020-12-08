@@ -60,8 +60,8 @@ def parser_arg():
     parser.add_argument('--batch_size', type=int, default=128, help="batch size (default: 128)")
 
     ## debug
-    args, _ = parser.parse_known_args('-g 0 --exp_name debug2 \
-                                       --backbone resnet18 --method AFD \
+    args, _ = parser.parse_known_args('-g 0 --exp_name debug4 \
+                                       --backbone resnet18 --method BaseMethod \
                                        --batch_size 128'.split())
 
     ## real
@@ -74,17 +74,21 @@ args = parser_arg()
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
-torch.backends.cudnn.benchmark = True
+# torch.set_num_threads(1)
 
 # RANDOM SEED
 def seed(seed_num):
-    torch.manual_seed(seed_num)
-    if torch.cuda.is_available(): torch.cuda.manual_seed_all(seed_num)
-    np.random.seed(seed_num)
     random.seed(seed_num)
-    # torch.set_num_threads(1)
+    np.random.seed(seed_num)
+    torch.manual_seed(seed_num)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed_num)
+        torch.cuda.manual_seed_all(seed_num) # if use multi-GPU
+    # It could be slow
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     
-# seed(777)
+seed(777)
 ### Step 1: init dataloader
 train_dataset, test_dataset = dataset_cifar('cifar100')
 trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
@@ -108,34 +112,40 @@ if torch.cuda.is_available():
 # calculate the number of parameters
 cal_num_parameters(model.parameters(), file=args.logfile)
 
-############### Training ###############v
+############### Training ###############
 ## log
-epoch_time = AverageMeter('Time', ':.3f')
-tr_losses = AverageMeter('Train Loss', ':.4f')
-te_accs = AverageMeter('Test Acc', ':.4f')
-progress = ProgressMeter(args.epochs, [epoch_time, tr_losses, te_accs], prefix=f'EPOCH')
-
+log_list = [meter for meter in model.set_log(0, 0)[0] if not meter.name == 'Data']
+log_list.append(AverageMeter('Test_Acc', ':.4f'))
+progress = ProgressMeter(args.epochs, meters=log_list, prefix=f'EPOCH')
 logger = tb_logger.Logger(logdir=args.tb_folder)
 end = time.time()
 max_acc = 0.0
 for epoch in range(1, args.epochs+1):
-    tr_loss = model.train_loop(trainloader, epoch=epoch)
-    epoch_time.update(time.time() - end)
-    tr_losses.update(tr_loss)
-    logger.log_value('tr_loss', tr_loss, epoch)
-    logger.log_value('lr', model.optimizer.param_groups[0]['lr'], epoch)
-
+    ## train
+    loss_list = model.train_loop(trainloader, epoch=epoch)
+    log_list[0].update(time.time() - end)
+    
     ## eval
     eval_acc = model.evaluation(testloader)
-    te_accs.update(eval_acc)
-    logger.log_value('te_acc', eval_acc, epoch)
+    
+    ## log
+    for i, loss in enumerate(loss_list):
+        log_list[i+1].update(loss.avg)
+        logger.log_value(loss.name, loss.avg, epoch)
+    lr_name = 'lr'
+    for i, opt in enumerate(model.optimizer.optimizers):
+        logger.log_value(lr_name, opt.param_groups[0]['lr'], epoch)
+        lr_name += f'_{i+2}'
+    log_list[-1].update(eval_acc)
+    logger.log_value(log_list[-1].name, eval_acc, epoch)
 
     log(progress.display(epoch), args.logfile, consol=False)
 
+    ## save
     state = {'args' : args,
              'epoch' : epoch,
-             'state_dict' : model.state_dict(),
-             'optimizer' : model.optimizer.state_dict()}
+             'state_dict' : model.state_dict(),}
+            #  'optimizer' : model.optimizer.state_dict()}
 
     if max_acc < eval_acc:
         max_acc = eval_acc

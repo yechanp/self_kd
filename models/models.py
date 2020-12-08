@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 # from torch.autograd import Variable
 import time
-from utils import AverageMeter, ProgressMeter
+from utils import AverageMeter, ProgressMeter, MultipleOptimizer
 
 __all__ = ['BaseMethod', 'AFD']
 class BaseMethod(nn.Module):
@@ -14,30 +14,31 @@ class BaseMethod(nn.Module):
     def __init__(self, backbone):
         super(BaseMethod, self).__init__()
         self.backbone = backbone
-        self.set_optimizer()
+        self.optimizer = MultipleOptimizer(self.set_optimizer())
         
-    def set_log(self, epoch, num_batch):
+    def set_log(self, epoch, num_batchs):
         batch_time = AverageMeter('Time', ':.3f')
         data_time = AverageMeter('Data', ':.3f')
         losses = AverageMeter('Loss', ':.4f')
-        
-        progress = ProgressMeter(num_batch,
+
+        progress = ProgressMeter(num_batchs, 
                                 [batch_time, data_time, losses],
                                 prefix=f'Epoch[{epoch}] Batch')
         
-        return batch_time, data_time, losses, progress
+        return [batch_time, data_time, losses], progress
 
     def set_optimizer(self):
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
-        self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=[150, 225], gamma=0.1)
+        optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
+        self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150, 225], gamma=0.1)
+        return [optimizer]
 
     def forward(self, x):
         return self.backbone(x)
     
     def train_loop(self, dataloader, epoch, freq=10):
         self.train()
-        batch_time, data_time, losses, progress = self.set_log(epoch, len(dataloader))
+        [batch_time, data_time, losses], progress = self.set_log(epoch, len(dataloader))
         end = time.time()
         for i, (x, y) in enumerate(dataloader):
             data_time.update(time.time() - end)
@@ -59,10 +60,10 @@ class BaseMethod(nn.Module):
 
             if (i%freq) == 0:
                 progress.display(i)
-        
+
         ## lr schedulder
         self.lr_scheduler.step()
-        return losses.avg
+        return [losses]
 
     @torch.no_grad()
     def evaluation(self, dataloader):
@@ -89,7 +90,15 @@ class AFD(BaseMethod):
         self.backbone2 = backbone2
         self.D_1 = self._make_discriminator()
         self.D_2 = self._make_discriminator()
-        self.set_optimizer()
+        self.optimizer = MultipleOptimizer(self.set_optimizer())
+
+    def set_log(self, epoch, num_batchs):
+        log_list, _ = super().set_log(epoch, num_batchs)
+        log_list.append(AverageMeter('KL_Loss', ':.4f'))
+        log_list.append(AverageMeter('Feat_Loss', ':.4f'))
+        progress = ProgressMeter(num_batchs, meters=log_list,
+                                prefix=f'Epoch[{epoch}] Batch')
+        return log_list, progress
 
     def _make_discriminator(self):
         layer = nn.Sequential(
@@ -104,11 +113,12 @@ class AFD(BaseMethod):
     def set_optimizer(self):
         self.criterion_ce = nn.CrossEntropyLoss()
         self.criterion_kl = nn.KLDivLoss(reduction='batchmean')
-        self.optimizer = torch.optim.SGD(list(self.backbone1.parameters()) + list(self.backbone2.parameters()), 
+        optimizer_logit = torch.optim.SGD(list(self.backbone1.parameters()) + list(self.backbone2.parameters()), 
                                          lr=0.1, momentum=0.9, weight_decay=1e-4)
-        self.optimizer_feat = torch.optim.Adam(self.parameters(), lr=2e-5, weight_decay=0.1)
-        self.lr_scheduler_logit = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=[150, 225], gamma=0.1)
-        self.lr_scheduler_feat = torch.optim.lr_scheduler.MultiStepLR(self.optimizer_feat, milestones=[75, 150], gamma=0.1)
+        optimizer_feat = torch.optim.Adam(self.parameters(), lr=2e-5, weight_decay=0.1)
+        self.lr_scheduler_logit = torch.optim.lr_scheduler.MultiStepLR(optimizer_logit, milestones=[150, 225], gamma=0.1)
+        self.lr_scheduler_feat = torch.optim.lr_scheduler.MultiStepLR(optimizer_feat, milestones=[75, 150], gamma=0.1)
+        return optimizer_logit, optimizer_feat
 
     def forward(self, x):
         return self.backbone1(x)
@@ -118,14 +128,14 @@ class AFD(BaseMethod):
         pred2 = F.softmax(out2/self.T, dim=1)
         return self.criterion_kl(pred1_log, pred2)
 
-    def compute_discriminator_loss(self, D, feat1, feat2):
+    def compute_D_loss(self, D, feat1, feat2):
         d_out1 = D(feat1).view(-1, 1)
         d_out2 = D(feat2).view(-1, 1)
         return torch.mean((1 - d_out1)**2 + (d_out2)**2, dim=0)
     
     def train_loop(self, dataloader, epoch, freq=10):
         self.train()
-        batch_time, data_time, losses, progress = self.set_log(epoch, len(dataloader))
+        [batch_time, data_time, losses, kl_losses, feat_losses], progress = self.set_log(epoch, len(dataloader))
         end = time.time()
         for i, (x, y) in enumerate(dataloader):
             data_time.update(time.time() - end)
@@ -139,21 +149,25 @@ class AFD(BaseMethod):
             loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1)
             loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
 
-            loss = loss_ce1 + loss_ce2 + (self.T**2)*loss_kl1 + (self.T**2)*loss_kl2
-            loss_feat = self.compute_discriminator_loss(self.D_1, feat_1, feat_2) + self.compute_discriminator_loss(self.D_2, feat_2, feat_1)
+            loss_ce = loss_ce1 + loss_ce2
+            loss_kl = (self.T**2)*loss_kl1 + (self.T**2)*loss_kl2
+            loss_logit = loss_ce + loss_kl
+            loss_feat = self.compute_D_loss(self.D_1, feat_1, feat_2) + self.compute_D_loss(self.D_2, feat_2, feat_1)
             
             ############### Backpropagation ###############
             self.optimizer.zero_grad()
-            loss.backward(retain_graph=True)
-            self.optimizer.step()
-
-            self.optimizer_feat.zero_grad()
+            # TODO: The results are different
+            loss_logit.backward(retain_graph=True)
             loss_feat.backward()
-            self.optimizer_feat.step()
+            # (loss_logit + loss_feat).backward()
+            self.optimizer.step()
             ###############################################
 
             # log
-            losses.update(loss.item(), x.size(0))
+            losses.update(loss_ce.item(), x.size(0))
+            kl_losses.update(loss_kl.item(), x.size(0))
+            feat_losses.update(loss_feat.item(), x.size(0))
+
             batch_time.update(time.time() - end)
             end = time.time()
 
@@ -163,7 +177,7 @@ class AFD(BaseMethod):
         ## lr schedulder
         self.lr_scheduler_logit.step()
         self.lr_scheduler_feat.step()
-        return losses.avg
+        return [losses, kl_losses, feat_losses]
     
 """
 def kl_loss_compute(logits1, logits2):
