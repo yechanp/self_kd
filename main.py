@@ -19,6 +19,8 @@ from dataset import dataset_cifar
 from utils import cal_num_parameters, log, current_time, AverageMeter, ProgressMeter
 from models import models, resnet
 
+method_names = [name for name in models.__all__
+                if not name.startswith('__') and callable(models.__dict__[name])]
 backbone_names = sorted(name for name in resnet.__all__
                         if name.islower() and not name.startswith("__")
                         and callable(resnet.__dict__[name]))
@@ -48,17 +50,22 @@ def parser_arg():
     parser.add_argument('-f', '--force', dest='force', action='store_true', help='remove by force (default : False)')
 
     ## hyper-parameters
-    parser.add_argument('--backbone', type=str, default='resnet18', metavar='BACKBONE', choices=backbone_names, help="Backbone models: "+
-                                                                                                 " | ".join(backbone_names)+
-                                                                                                 " (default: resnet18)")
+    parser.add_argument('--method', type=str, default='BaseMethod', metavar='METHOD', choices=method_names, help='model_names: '+
+                                                                                                           ' | '.join(method_names)+
+                                                                                                           ' (defualt: BaseMethod)')
+    parser.add_argument('--backbone', type=str, default='resnet18', metavar='BACKBONE', choices=backbone_names, help='Backbone models: '+
+                                                                                                                     ' | '.join(backbone_names)+
+                                                                                                                     ' (default: resnet18)')
     parser.add_argument('--epochs', type=int, default=300, help="epoch (default: 300)")
     parser.add_argument('--batch_size', type=int, default=128, help="batch size (default: 128)")
 
     ## debug
-    # args, _ = parser.parse_known_args('-g 0 --exp_name debug --backbone resnet18'.split())
+    args, _ = parser.parse_known_args('-g 0 --exp_name debug2 \
+                                       --backbone resnet18 --method AFD \
+                                       --batch_size 128'.split())
 
     ## real
-    args, _ = parser.parse_known_args()
+    # args, _ = parser.parse_known_args()
 
     return add_args(args)
 
@@ -67,6 +74,7 @@ args = parser_arg()
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
+torch.backends.cudnn.benchmark = True
 
 # RANDOM SEED
 def seed(seed_num):
@@ -75,24 +83,25 @@ def seed(seed_num):
     np.random.seed(seed_num)
     random.seed(seed_num)
     # torch.set_num_threads(1)
-    torch.backends.cudnn.benchmark = True
-
-seed(777)
-# Step 1: init dataloader
+    
+# seed(777)
+### Step 1: init dataloader
 train_dataset, test_dataset = dataset_cifar('cifar100')
 trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                             shuffle=True, num_workers=1)
 testloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size*2,
                                             shuffle=False, num_workers=1)
-# Step 2: init neural networks
+### Step 2: init neural networks
 print("init neural networks")
+## construct the model
 backbone = resnet.__dict__[args.backbone](num_classes=100)
-# print('Use resnet_cfiar.py')
-# from models.resnet_cifar import resnet18
-# backbone = resnet18()
-
-# construct the model
-model = models.BaseTempelet(backbone)
+if args.method == 'BaseMethod':
+    model = models.__dict__[args.method](backbone)
+elif args.method == 'AFD':
+    backbone2 = resnet.__dict__[args.backbone](num_classes=100)
+    model = models.AFD(backbone, backbone2)
+else:
+    print(f'{args.method} is not available')
 if torch.cuda.is_available():
     model.cuda()
 
@@ -115,9 +124,6 @@ for epoch in range(1, args.epochs+1):
     tr_losses.update(tr_loss)
     logger.log_value('tr_loss', tr_loss, epoch)
     logger.log_value('lr', model.optimizer.param_groups[0]['lr'], epoch)
-
-    ## lr scheduler
-    model.lr_scheduler.step()
 
     ## eval
     eval_acc = model.evaluation(testloader)

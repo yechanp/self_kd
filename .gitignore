@@ -1,6 +1,8 @@
 *.ipynb
 */__pycache__
-.ipynb_checkpints
+__pycache__
+*.cpython-36.pyc
+.ipynb_checkpoints
 .vscode
 
 saved_model/*

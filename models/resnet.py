@@ -1,7 +1,8 @@
 ##############################################################
 # The code adopted from https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
 # pretrained does not work
-# Only Modifications are line 139, 142, 199. For cifar dataset.
+# Modifications for cifar dataset.
+# 
 # By Hyoje Lee
 ##############################################################
 
@@ -193,7 +194,7 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x, return_feat=False):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -203,12 +204,15 @@ class ResNet(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
+        feat = x
 
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.fc(x)
-
-        return x
+        if return_feat:
+            return x, feat
+        else:
+            return x
 
 
 def _resnet(arch, block, layers, pretrained, progress, **kwargs):
