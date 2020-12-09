@@ -1,5 +1,5 @@
 """
-2020-12-04
+2020-12-09
 Hyoje Lee
 
 """
@@ -27,7 +27,11 @@ backbone_names = sorted(name for name in resnet.__all__
 
 # deal with params
 def add_args(args):
-    args.save_folder = os.path.join('saved_model', args.exp_name)
+    if not os.path.isdir('saved_models'):
+        os.mkdir('saved_models')
+    if not os.path.isdir('tb_results'):
+        os.mkdir('tb_results')
+    args.save_folder = os.path.join('saved_models', args.exp_name)
     args.tb_folder = os.path.join('tb_results', args.exp_name)
     if not os.path.isdir(args.save_folder):
         os.mkdir(args.save_folder)
@@ -44,10 +48,11 @@ def add_args(args):
 def parser_arg():
     parser = argparse.ArgumentParser()
     ## 
-    parser.add_argument('--exp_name', type=str, dest='exp_name', default='debug', help="model_name")
+    parser.add_argument('--exp_name', type=str, default='debug', help="model_name")
     parser.add_argument('-g', '--gpu', type=int, dest='gpu', default=0, help="gpu")
     parser.add_argument('-l', '--load', type=str, dest='load_model', default='', help='name of model')
-    parser.add_argument('-f', '--force', dest='force', action='store_true', help='remove by force (default : False)')
+    parser.add_argument('-f', '--force', dest='force', action='store_true', help='remove by force (default: False)')
+    parser.add_argument('--seed', type=int, default=0, help='seed number. if 0, do not fix seed (default: 0)')
 
     ## hyper-parameters
     parser.add_argument('--method', type=str, default='BaseMethod', metavar='METHOD', choices=method_names, help='model_names: '+
@@ -60,20 +65,20 @@ def parser_arg():
     parser.add_argument('--batch_size', type=int, default=128, help="batch size (default: 128)")
 
     ## debug
-    args, _ = parser.parse_known_args('-g 0 --exp_name debug4 \
-                                       --backbone resnet18 --method BaseMethod \
-                                       --batch_size 128'.split())
+    # args, _ = parser.parse_known_args('-g 0 --exp_name debug \
+    #                                    --backbone resnet18 --method AFD \
+    #                                    --batch_size 128'.split())
 
     ## real
-    # args, _ = parser.parse_known_args()
+    args, _ = parser.parse_known_args()
 
     return add_args(args)
 
 # set environment variables: gpu, num_thread
 args = parser_arg()
-os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
+os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
 # torch.set_num_threads(1)
 
 # RANDOM SEED
@@ -87,8 +92,8 @@ def seed(seed_num):
     # It could be slow
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    
-seed(777)
+if args.seed:    
+    seed(args.seed)
 ### Step 1: init dataloader
 train_dataset, test_dataset = dataset_cifar('cifar100')
 trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
@@ -99,7 +104,7 @@ testloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_siz
 print("init neural networks")
 ## construct the model
 backbone = resnet.__dict__[args.backbone](num_classes=100)
-if args.method == 'BaseMethod':
+if args.method in ['BaseMethod', 'SelfKD']:
     model = models.__dict__[args.method](backbone)
 elif args.method == 'AFD':
     backbone2 = resnet.__dict__[args.backbone](num_classes=100)
