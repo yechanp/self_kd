@@ -2,7 +2,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 
-DATAPATH = '/home/hyoje/pyfiles/datasets/'
+DATAPATH = 'dataset/'
 
 def dataset_cifar(mode, transform=None, root=DATAPATH):
     """

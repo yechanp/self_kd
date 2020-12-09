@@ -82,11 +82,12 @@ class BaseMethod(nn.Module):
         return 100*correct/total
         
 class AFD(BaseMethod):
-    def __init__(self, backbone1, backbone2):
+    def __init__(self, backbone, backbone2):
         super(BaseMethod, self).__init__()
         self.T = 3
-        self.backbone1 = backbone1
+        self.backbone = backbone
         self.backbone2 = backbone2
+        self.backbones_parameters = list(backbone.parameters()) + list(backbone2.parameters())
         self.D_1 = self._make_discriminator()
         self.D_2 = self._make_discriminator()
         self.optimizer = MultipleOptimizer(self.set_optimizer())
@@ -112,15 +113,14 @@ class AFD(BaseMethod):
     def set_optimizer(self):
         self.criterion_ce = nn.CrossEntropyLoss()
         self.criterion_kl = nn.KLDivLoss(reduction='batchmean')
-        optimizer_logit = torch.optim.SGD(list(self.backbone1.parameters()) + list(self.backbone2.parameters()), 
-                                         lr=0.1, momentum=0.9, weight_decay=1e-4)
+        optimizer_logit = torch.optim.SGD(self.backbones_parameters, lr=0.1, momentum=0.9, weight_decay=1e-4)
         optimizer_feat = torch.optim.Adam(self.parameters(), lr=2e-5, weight_decay=0.1)
         self.lr_scheduler_logit = torch.optim.lr_scheduler.MultiStepLR(optimizer_logit, milestones=[150, 225], gamma=0.1)
         self.lr_scheduler_feat = torch.optim.lr_scheduler.MultiStepLR(optimizer_feat, milestones=[75, 150], gamma=0.1)
         return optimizer_logit, optimizer_feat
 
     def forward(self, x):
-        return self.backbone1(x)
+        return self.backbone(x)
     
     def compute_kl_loss(self, out1, out2):
         pred1_log = F.log_softmax(out1/self.T, dim=1)
@@ -140,7 +140,7 @@ class AFD(BaseMethod):
             data_time.update(time.time() - end)
             if torch.cuda.is_available():
                 x, y = x.cuda(), y.cuda()
-            outputs_1, feat_1 = self.backbone1(x, return_feat=True)
+            outputs_1, feat_1 = self.backbone(x, return_feat=True)
             outputs_2, feat_2 = self.backbone2(x, return_feat=True)
             loss_ce1 = self.criterion_ce(outputs_1, y)
             loss_ce2 = self.criterion_ce(outputs_2, y)
@@ -183,41 +183,11 @@ class SelfKD(AFD):
         super(BaseMethod, self).__init__()
         self.T = 3
         self.backbone = backbone
+        self.backbones_parameters = backbone.parameters()
         self.D_1 = self._make_discriminator()
         self.D_2 = self._make_discriminator()
         self.optimizer = MultipleOptimizer(self.set_optimizer())
 
-    def set_log(self, epoch, num_batchs):
-        log_list, _ = super().set_log(epoch, num_batchs)
-        log_list.append(AverageMeter('KL_Loss', ':.4f'))
-        log_list.append(AverageMeter('Feat_Loss', ':.4f'))
-        progress = ProgressMeter(num_batchs, meters=log_list,
-                                prefix=f'Epoch[{epoch}] Batch')
-        return log_list, progress
-
-    def _make_discriminator(self):
-        layer = nn.Sequential(
-            nn.Conv2d(in_channels=512, out_channels=256, kernel_size=2),
-            nn.BatchNorm2d(num_features=256),
-            nn.LeakyReLU(inplace=True),
-            nn.Conv2d(in_channels=256, out_channels=1, kernel_size=2, stride=2),
-            nn.Sigmoid()
-        )
-        return layer
-
-    def set_optimizer(self):
-        self.criterion_ce = nn.CrossEntropyLoss()
-        self.criterion_kl = nn.KLDivLoss(reduction='batchmean')
-        optimizer_logit = torch.optim.SGD(self.backbone.parameters(), 
-                                         lr=0.1, momentum=0.9, weight_decay=1e-4)
-        optimizer_feat = torch.optim.Adam(self.parameters(), lr=2e-5, weight_decay=0.1)
-        self.lr_scheduler_logit = torch.optim.lr_scheduler.MultiStepLR(optimizer_logit, milestones=[150, 225], gamma=0.1)
-        self.lr_scheduler_feat = torch.optim.lr_scheduler.MultiStepLR(optimizer_feat, milestones=[75, 150], gamma=0.1)
-        return optimizer_logit, optimizer_feat
-
-    def forward(self, x):
-        return self.backbone1(x)
-    
     def train_loop(self, dataloader, epoch, freq=10):
         self.train()
         [batch_time, data_time, losses, kl_losses, feat_losses], progress = self.set_log(epoch, len(dataloader))
@@ -226,8 +196,8 @@ class SelfKD(AFD):
             data_time.update(time.time() - end)
             if torch.cuda.is_available():
                 x, y = x.cuda(), y.cuda()
-            outputs_1, feat_1 = self.backbone1(x, return_feat=True)
-            outputs_2, feat_2 = self.backbone2(x, return_feat=True)
+            outputs_1, feat_1 = self.backbone(x, return_feat=True)
+            outputs_2, feat_2 = self.backbone(x, return_feat=True)
             loss_ce1 = self.criterion_ce(outputs_1, y)
             loss_ce2 = self.criterion_ce(outputs_2, y)
 

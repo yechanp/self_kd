@@ -6,7 +6,11 @@ __pycache__
 .ipynb_checkpoints
 .vscode
 
+## folder
 saved_models/*
 tb_results/*
+dataset/*
+dataset
+
 __pycache__/utils.cpython-36.pyc
 __pycache__/dataset.cpython-36.pyc

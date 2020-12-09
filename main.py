@@ -65,12 +65,13 @@ def parser_arg():
     parser.add_argument('--batch_size', type=int, default=128, help="batch size (default: 128)")
 
     ## debug
-    # args, _ = parser.parse_known_args('-g 0 --exp_name debug \
-    #                                    --backbone resnet18 --method AFD \
-    #                                    --batch_size 128'.split())
+    args, _ = parser.parse_known_args('-g 0 --exp_name debug \
+                                       --backbone resnet18 --method SelfKD \
+                                       --batch_size 128'.split())
+                                       
 
     ## real
-    args, _ = parser.parse_known_args()
+    # args, _ = parser.parse_known_args()
 
     return add_args(args)
 
