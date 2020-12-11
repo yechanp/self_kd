@@ -61,17 +61,17 @@ def parser_arg():
     parser.add_argument('--backbone', type=str, default='resnet18', metavar='BACKBONE', choices=backbone_names, help='Backbone models: '+
                                                                                                                      ' | '.join(backbone_names)+
                                                                                                                      ' (default: resnet18)')
-    parser.add_argument('--epochs', type=int, default=300, help="epoch (default: 300)")
+    parser.add_argument('--epochs', type=int, default=200, help="epoch (default: 200)")
     parser.add_argument('--batch_size', type=int, default=128, help="batch size (default: 128)")
+    parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
 
     ## debug
-    args, _ = parser.parse_known_args('-g 0 --exp_name debug \
-                                       --backbone resnet18 --method SelfKD \
-                                       --batch_size 128'.split())
+    # args, _ = parser.parse_known_args('-g 0 --exp_name debug \
+    #                                    --backbone resnet18 --method AFD \
+    #                                    --batch_size 128'.split())
                                        
-
     ## real
-    # args, _ = parser.parse_known_args()
+    args, _ = parser.parse_known_args()
 
     return add_args(args)
 
@@ -96,7 +96,7 @@ def seed(seed_num):
 if args.seed:    
     seed(args.seed)
 ### Step 1: init dataloader
-train_dataset, test_dataset = dataset_cifar('cifar100')
+train_dataset, test_dataset = dataset_cifar('cifar100', aug=args.aug)
 trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                             shuffle=True, num_workers=1)
 testloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size*2,

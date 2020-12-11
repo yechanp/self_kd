@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import time
-from utils import AverageMeter, ProgressMeter, MultipleOptimizer
+from utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedulers
 
 __all__ = ['BaseMethod', 'AFD', 'SelfKD']
 class BaseMethod(nn.Module):
@@ -29,7 +29,7 @@ class BaseMethod(nn.Module):
     def set_optimizer(self):
         self.criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
-        self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[150, 225], gamma=0.1)
+        self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
         return [optimizer]
 
     def forward(self, x):
@@ -87,10 +87,11 @@ class AFD(BaseMethod):
         self.T = 3
         self.backbone = backbone
         self.backbone2 = backbone2
-        self.backbones_parameters = list(backbone.parameters()) + list(backbone2.parameters())
         self.D_1 = self._make_discriminator()
         self.D_2 = self._make_discriminator()
-        self.optimizer = MultipleOptimizer(self.set_optimizer())
+        ## parameters
+        self.backbones_parameters = list(backbone.parameters()) + list(backbone2.parameters())
+        self.set_optimizer()
 
     def set_log(self, epoch, num_batchs):
         log_list, _ = super().set_log(epoch, num_batchs)
@@ -115,9 +116,10 @@ class AFD(BaseMethod):
         self.criterion_kl = nn.KLDivLoss(reduction='batchmean')
         optimizer_logit = torch.optim.SGD(self.backbones_parameters, lr=0.1, momentum=0.9, weight_decay=1e-4)
         optimizer_feat = torch.optim.Adam(self.parameters(), lr=2e-5, weight_decay=0.1)
-        self.lr_scheduler_logit = torch.optim.lr_scheduler.MultiStepLR(optimizer_logit, milestones=[150, 225], gamma=0.1)
-        self.lr_scheduler_feat = torch.optim.lr_scheduler.MultiStepLR(optimizer_feat, milestones=[75, 150], gamma=0.1)
-        return optimizer_logit, optimizer_feat
+        lr_scheduler_logit = torch.optim.lr_scheduler.MultiStepLR(optimizer_logit, milestones=[100, 150], gamma=0.1)
+        lr_scheduler_feat = torch.optim.lr_scheduler.MultiStepLR(optimizer_feat, milestones=[50, 100], gamma=0.1)
+        self.optimizer = MultipleOptimizer([optimizer_logit, optimizer_feat])
+        self.lr_schedulers = MultipleSchedulers([lr_scheduler_logit, lr_scheduler_feat])
 
     def forward(self, x):
         return self.backbone(x)
@@ -174,19 +176,47 @@ class AFD(BaseMethod):
                 progress.display(i)
 
         ## lr schedulder
-        self.lr_scheduler_logit.step()
-        self.lr_scheduler_feat.step()
+        self.lr_schedulers.step()
         return [losses, kl_losses, feat_losses]
 
 class SelfKD(AFD):
     def __init__(self, backbone):
         super(BaseMethod, self).__init__()
         self.T = 3
+        self.P = 0.2
         self.backbone = backbone
         self.backbones_parameters = backbone.parameters()
         self.D_1 = self._make_discriminator()
         self.D_2 = self._make_discriminator()
-        self.optimizer = MultipleOptimizer(self.set_optimizer())
+        self.set_optimizer()
+
+    def make_output(self, x):
+        net = self.backbone
+        x = net.avgpool(x)
+        x = torch.flatten(x, 1)
+        out = net.fc(x)
+
+        return out
+
+    def make_feats(self, x):
+        net = self.backbone
+        _, feat = net(x, return_feat=True)
+        feats = [F.dropout2d(feat, p=self.P) for _ in range(2)]
+
+        return feats
+
+    def make_feats_with_multiple_dropout(self, x):
+        net = self.backbone
+        x = net.relu(net.bn1(net.conv1(x)))
+        x = net.layer1(x)
+        feats = [F.dropout2d(x, p=self.P) for _ in range(2)]
+        feats = [net.layer2(feats[i]) for i in range(2)]
+        feats = [F.dropout2d(feats[i], p=self.P) for i in range(2)]
+        feats = [net.layer3(feats[i]) for i in range(2)]
+        feats = [F.dropout2d(feats[i], p=self.P) for i in range(2)]
+        feats = [net.layer4(feats[i]) for i in range(2)]
+
+        return feats
 
     def train_loop(self, dataloader, epoch, freq=10):
         self.train()
@@ -196,8 +226,10 @@ class SelfKD(AFD):
             data_time.update(time.time() - end)
             if torch.cuda.is_available():
                 x, y = x.cuda(), y.cuda()
-            outputs_1, feat_1 = self.backbone(x, return_feat=True)
-            outputs_2, feat_2 = self.backbone(x, return_feat=True)
+
+            # feats = self.make_feats(x)
+            feats = self.make_feats_with_multiple_dropout(x)
+            outputs_1, outputs_2 = [self.make_output(feats[j]) for j in range(2)]
             loss_ce1 = self.criterion_ce(outputs_1, y)
             loss_ce2 = self.criterion_ce(outputs_2, y)
 
@@ -207,7 +239,7 @@ class SelfKD(AFD):
             loss_ce = loss_ce1 + loss_ce2
             loss_kl = (self.T**2)*loss_kl1 + (self.T**2)*loss_kl2
             loss_logit = loss_ce + loss_kl
-            loss_feat = self.compute_D_loss(self.D_1, feat_1, feat_2) + self.compute_D_loss(self.D_2, feat_2, feat_1)
+            loss_feat = self.compute_D_loss(self.D_1, feats[0], feats[1]) + self.compute_D_loss(self.D_2, feats[1], feats[0])
             
             ############### Backpropagation ###############
             self.optimizer.zero_grad()
@@ -228,10 +260,10 @@ class SelfKD(AFD):
 
             if (i%freq) == 0:
                 progress.display(i)
+            break
 
         ## lr schedulder
-        self.lr_scheduler_logit.step()
-        self.lr_scheduler_feat.step()
+        self.lr_schedulers.step()
         return [losses, kl_losses, feat_losses]
 
 """

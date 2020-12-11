@@ -93,3 +93,11 @@ class MultipleOptimizer():
     def step(self):
         for op in self.optimizers:
             op.step()
+
+class MultipleSchedulers():
+    def __init__(self, schs):
+        self.schedulers = schs
+
+    def step(self):
+        for sch in self.schedulers:
+            sch.step()
