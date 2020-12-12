@@ -66,8 +66,8 @@ def parser_arg():
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
 
     ## debug
-    # args, _ = parser.parse_known_args('-g 0 --exp_name debug \
-    #                                    --backbone resnet18 --method AFD \
+    # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 777 \
+    #                                    --backbone resnet18 --method SelfKD \
     #                                    --batch_size 128'.split())
                                        
     ## real
