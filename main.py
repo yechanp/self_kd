@@ -31,6 +31,7 @@ def add_args(args):
         os.mkdir('saved_models')
     if not os.path.isdir('tb_results'):
         os.mkdir('tb_results')
+    args.exp_name += f'_{current_time()}'
     args.save_folder = os.path.join('saved_models', args.exp_name)
     args.tb_folder = os.path.join('tb_results', args.exp_name)
     if not os.path.isdir(args.save_folder):

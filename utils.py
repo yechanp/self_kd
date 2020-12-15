@@ -6,8 +6,8 @@ from datetime import datetime
 def current_time(easy=False):
     """
     return : 
-        if human==False, '20190212_070531'
-        if human==True, '2019-02-12 07:05:31'
+        if easy==False, '20190212_070531'
+        if easy==True, '2019-02-12 07:05:31'
     """
     now = datetime.now()
     if not easy:

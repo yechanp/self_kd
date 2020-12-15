@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import time
 from utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedulers
 
-__all__ = ['BaseMethod', 'AFD', 'SelfKD']
+__all__ = ['BaseMethod', 'AFD', 'SelfKD_AFD']
 class BaseMethod(nn.Module):
 
     def __init__(self, backbone):
@@ -160,8 +160,8 @@ class AFD(BaseMethod):
             loss_ce = loss_ce1 + loss_ce2
             loss_kl = (self.T**2)*loss_kl1 + (self.T**2)*loss_kl2
             loss_logit = loss_ce + loss_kl
-            loss_feat_D = self.compute_D_loss(self.D_1, feat_1, feat_2) + self.compute_D_loss(self.D_2, feat_2, feat_1)
-            loss_feat_G = self.compute_G_loss(self.D_1, feat_1) + self.compute_G_loss(self.D_2, feat_2)
+            loss_feat_D = 0.5*(self.compute_D_loss(self.D_1, feat_1, feat_2) + self.compute_D_loss(self.D_2, feat_2, feat_1))
+            loss_feat_G = 0.5*(self.compute_G_loss(self.D_1, feat_1) + self.compute_G_loss(self.D_2, feat_2))
             
             ############## Backpropagation ###############
             ## optimizers 0: logit, 1: G, 2: D
@@ -193,7 +193,7 @@ class AFD(BaseMethod):
         self.lr_schedulers.step()
         return [losses, kl_losses, G_losses, D_losses]
 
-class SelfKD(AFD):
+class SelfKD_AFD(AFD):
     def __init__(self, backbone):
         super(BaseMethod, self).__init__()
         self.T = 3
@@ -216,10 +216,10 @@ class SelfKD(AFD):
 
     def make_feats(self, x):
         net = self.backbone
-        _, feat = net(x, return_feat=True)
-        feats = [F.dropout2d(feat, p=self.P) for _ in range(2)]
+        output, feat = net(x, return_feat=True)
+        feats_dropout = [F.dropout2d(feat, p=self.P) for _ in range(2)]
 
-        return feats
+        return output, feats_dropout
 
     def make_feats_with_multiple_dropout(self, x):
         net = self.backbone
@@ -243,20 +243,20 @@ class SelfKD(AFD):
             if torch.cuda.is_available():
                 x, y = x.cuda(), y.cuda()
 
-            feats = self.make_feats(x)
+            output_wo_dropout, feats = self.make_feats(x)
             # feats = self.make_feats_with_multiple_dropout(x)
             outputs_1, outputs_2 = [self.make_output(feats[j]) for j in range(2)]
-            loss_ce1 = self.criterion_ce(outputs_1, y)
-            loss_ce2 = self.criterion_ce(outputs_2, y)
+            # loss_ce = self.criterion_ce(output_wo_dropout, y)
+            loss_ce = 0.5*(self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y))
+
 
             loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1)
             loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
 
-            loss_ce = loss_ce1 + loss_ce2
             loss_kl = (self.T**2)*loss_kl1 + (self.T**2)*loss_kl2
             loss_logit = loss_ce + loss_kl
-            loss_feat_D = self.compute_D_loss(self.D_1, feats[0], feats[1]) + self.compute_D_loss(self.D_2, feats[1], feats[0])
-            loss_feat_G = self.compute_G_loss(self.D_1, feats[0]) + self.compute_G_loss(self.D_2, feats[1])
+            loss_feat_D = 0.5*(self.compute_D_loss(self.D_1, feats[0], feats[1]) + self.compute_D_loss(self.D_2, feats[1], feats[0]))
+            loss_feat_G = 0.5*(self.compute_G_loss(self.D_1, feats[0]) + self.compute_G_loss(self.D_2, feats[1]))
             
             ############## Backpropagation ###############
             ## optimizers 0: logit, 1: G, 2: D
