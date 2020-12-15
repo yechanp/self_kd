@@ -68,7 +68,7 @@ def parser_arg():
 
     ## debug
     # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 777 \
-    #                                    --backbone resnet18 --method SelfKD \
+    #                                    --backbone resnet18 --method DML \
     #                                    --batch_size 128'.split())
                                        
     ## real
@@ -106,11 +106,11 @@ testloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_siz
 print("init neural networks")
 ## construct the model
 backbone = resnet.__dict__[args.backbone](num_classes=100)
-if args.method in ['BaseMethod', 'SelfKD']:
+if args.method in ['BaseMethod', 'SelfKD_AFD']:
     model = models.__dict__[args.method](backbone)
-elif args.method == 'AFD':
+elif args.method in ['AFD', 'DML']:
     backbone2 = resnet.__dict__[args.backbone](num_classes=100)
-    model = models.AFD(backbone, backbone2)
+    model = models.__dict__[args.method](backbone, backbone2)
 else:
     print(f'{args.method} is not available')
 if torch.cuda.is_available():
@@ -121,7 +121,7 @@ cal_num_parameters(model.parameters(), file=args.logfile)
 
 ############### Training ###############
 ## log
-log_list = [meter for meter in model.set_log(0, 0)[0] if not meter.name == 'Data']
+log_list = [meter for meter in model.set_log(0, 0)[0].values() if not meter.name == 'Data']
 log_list.append(AverageMeter('Test_Acc', ':.4f'))
 progress = ProgressMeter(args.epochs, meters=log_list, prefix=f'EPOCH')
 logger = tb_logger.Logger(logdir=args.tb_folder)
