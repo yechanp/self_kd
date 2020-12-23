@@ -7,11 +7,12 @@ import torch.nn.functional as F
 import time
 from utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedulers
 
-__all__ = ['BaseMethod', 'AFD', 'SelfKD_AFD', 'DML']
+__all__ = ['BaseMethod', 'AFD', 'SelfKD_AFD', 'DML', 'SelfKD_KL', 'SelfKD_KL_Delay']
 class BaseMethod(nn.Module):
 
-    def __init__(self, backbone):
+    def __init__(self, args, backbone):
         super(BaseMethod, self).__init__()
+        self.args = args
         self.backbone = backbone
         self.set_optimizer()
         
@@ -99,9 +100,10 @@ class BaseMethod(nn.Module):
         return 100*correct/total
 
 class DML(BaseMethod):
-    def __init__(self, backbone, backbone2):
+    def __init__(self, args, backbone, backbone2):
         super(BaseMethod, self).__init__()
-        self.T = 3
+        self.args = args
+        self.T = args.t
         self.backbone = backbone
         self.backbone2 = backbone2
         ## parameters
@@ -157,9 +159,10 @@ class DML(BaseMethod):
         return meters
 
 class AFD(BaseMethod):
-    def __init__(self, backbone, backbone2):
+    def __init__(self, args, backbone, backbone2):
         super(BaseMethod, self).__init__()
-        self.T = 3
+        self.args = args
+        self.T = args.t
         self.backbone = backbone
         self.backbone2 = backbone2
         self.D_1 = self._make_discriminator()
@@ -262,10 +265,11 @@ class AFD(BaseMethod):
         return meters
 
 class SelfKD_AFD(AFD):
-    def __init__(self, backbone):
+    def __init__(self, args, backbone):
         super(BaseMethod, self).__init__()
-        self.T = 3
-        self.P = 0.2
+        self.args = args
+        self.T = args.t
+        self.P = args.p
         self.backbone = backbone
         self.D_1 = self._make_discriminator()
         self.D_2 = self._make_discriminator()
@@ -346,7 +350,99 @@ class SelfKD_AFD(AFD):
 
         return meters
 
+class SelfKD_KL(DML):
+    def __init__(self, args, backbone):
+        super(BaseMethod, self).__init__()
+        self.T = args.t
+        self.P = args.p
+        self.backbone = backbone
+        ## parameters
+        self.set_optimizer()
 
+    def make_output(self, x):
+        net = self.backbone
+        x = net.avgpool(x)
+        x = torch.flatten(x, 1)
+        out = net.fc(x)
+
+        return out
+
+    def make_feats(self, x):
+        net = self.backbone
+        output, feat = net(x, return_feat=True)
+        feats_dropout = [F.dropout2d(feat, p=self.P) for _ in range(2)]
+
+        return output, feats_dropout
+
+    def calculate_loss(self, x, y):
+        output_wo_dropout, feats = self.make_feats(x)
+        # feats = self.make_feats_with_multiple_dropout(x)
+        outputs_1, outputs_2 = [self.make_output(feats[j]) for j in range(2)]
+        loss_ce = self.criterion_ce(output_wo_dropout, y)
+        # loss_ce = 0.5*(self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y))
+
+        loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1)
+        loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
+
+        loss_kl = (self.T**2)*loss_kl1 + (self.T**2)*loss_kl2
+        loss_logit = loss_ce + loss_kl
+
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
+
+    def update_optimizer(self, results):
+        loss_logit = results['loss_logit']
+
+        self.optimizer.zero_grad()
+        loss_logit.backward()
+        self.optimizer.step()
+
+    def update_log(self, results, meters, size, end):
+        meters['losses'].update(results['loss_ce'].item(), size)
+        meters['kl_losses'].update(results['loss_kl'].item(), size)
+        meters['batch_time'].update(time.time() - end)
+
+        return meters
+
+class SelfKD_KL_Delay(SelfKD_KL):
+    def __init__(self, args, backbone):
+        super().__init__(args, backbone)
+    
+    def calculate_loss_wo_dropout(self, x, y):
+        outputs = self.forward(x)
+        loss = self.criterion_ce(outputs, y)
+        loss_kl = torch.tensor(0, dtype=torch.float32)
+        if torch.cuda.is_available(): loss_kl = loss_kl.cuda()
+
+        return {'loss_ce':loss, 'loss_kl':loss_kl, 'loss_logit':loss}
+
+    def train_loop(self, dataloader, epoch, freq=10):
+        self.train()
+        meters, progress = self.set_log(epoch, len(dataloader))
+        end = time.time()
+        for i, (x, y) in enumerate(dataloader):
+            meters['data_time'].update(time.time() - end)
+            if torch.cuda.is_available():
+                x, y = x.cuda(), y.cuda()
+            
+            # calculate loss
+            if epoch > 20:
+                results = self.calculate_loss(x, y)
+            else:
+                results = self.calculate_loss_wo_dropout(x, y)
+
+            # back-propagation
+            self.update_optimizer(results)
+
+            # log
+            meters = self.update_log(results, meters, x.size(0), end)
+            end = time.time()
+
+            if (i%freq) == 0:
+                progress.display(i)
+
+        ## lr schedulder
+        self.lr_scheduler.step()
+        return [meter for meter in meters.values() if 'Loss' in meter.name]
 
 
 """

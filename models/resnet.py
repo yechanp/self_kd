@@ -11,7 +11,7 @@ import torch.nn as nn
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
-           'wide_resnet50_2', 'wide_resnet101_2']
+           'wide_resnet50_2', 'wide_resnet101_2', 'resnet18_dropout']
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
@@ -213,11 +213,43 @@ class ResNet(nn.Module):
         else:
             return x
 
+class ResNet_dropout(ResNet):
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
+                 groups=1, width_per_group=64, replace_stride_with_dilation=None,
+                 norm_layer=None):
+        super(ResNet_dropout, self).__init__(block, layers, num_classes, zero_init_residual,
+                 groups, width_per_group, replace_stride_with_dilation,
+                 norm_layer)
+        self.dropout = nn.Dropout2d(p=0.2)
+
+    def forward(self, x, return_feat=False):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        # x = self.maxpool(x)   For cifar dataset
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.dropout(x)     # Difference Only
+        feat = x
+
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        if return_feat:
+            return x, feat
+        else:
+            return x
 
 def _resnet(arch, block, layers, pretrained, progress, **kwargs):
     model = ResNet(block, layers, **kwargs)
     return model
 
+def resnet18_dropout(**kwargs):
+    model = ResNet_dropout(BasicBlock, [2, 2, 2, 2], **kwargs)
+    return model
 
 def resnet18(pretrained=False, progress=True, **kwargs):
     r"""ResNet-18 model from

@@ -39,8 +39,7 @@ def add_args(args):
     if not os.path.isdir(args.tb_folder):
         os.mkdir(args.tb_folder)
     args.logfile = os.path.join(args.save_folder, 'log.txt')
-    with open(args.logfile, 'w') as f:
-        print(f'Strat time : {current_time(easy=True)}', file=f)
+    log(f'Strat time : {current_time(easy=True)}', logfile=args.logfile, _type='w')
     for key in args.__dict__.keys():
         log(f'{key} : {args.__dict__[key]}', logfile=args.logfile)
     
@@ -51,8 +50,6 @@ def parser_arg():
     ## 
     parser.add_argument('--exp_name', type=str, default='debug', help="model_name")
     parser.add_argument('-g', '--gpu', type=int, dest='gpu', default=0, help="gpu")
-    parser.add_argument('-l', '--load', type=str, dest='load_model', default='', help='name of model')
-    parser.add_argument('-f', '--force', dest='force', action='store_true', help='remove by force (default: False)')
     parser.add_argument('--seed', type=int, default=0, help='seed number. if 0, do not fix seed (default: 0)')
 
     ## hyper-parameters
@@ -64,11 +61,13 @@ def parser_arg():
                                                                                                                      ' (default: resnet18)')
     parser.add_argument('--epochs', type=int, default=200, help="epoch (default: 200)")
     parser.add_argument('--batch_size', type=int, default=128, help="batch size (default: 128)")
+    parser.add_argument('-t', type=int, default=3, help="temperature (default: 3)")
+    parser.add_argument('-p', type=float, default=0.2, help="the probability of dropout (default: 0.2)")
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
 
     ## debug
     # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 777 \
-    #                                    --backbone resnet18 --method DML \
+    #                                    --backbone resnet18 --method SelfKD_KL_Delay \
     #                                    --batch_size 128'.split())
                                        
     ## real
@@ -106,13 +105,14 @@ testloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_siz
 print("init neural networks")
 ## construct the model
 backbone = resnet.__dict__[args.backbone](num_classes=100)
-if args.method in ['BaseMethod', 'SelfKD_AFD']:
-    model = models.__dict__[args.method](backbone)
+if 'Base' in args.method or 'Self' in args.method:
+    model = models.__dict__[args.method](args, backbone)
 elif args.method in ['AFD', 'DML']:
     backbone2 = resnet.__dict__[args.backbone](num_classes=100)
-    model = models.__dict__[args.method](backbone, backbone2)
+    model = models.__dict__[args.method](args, backbone, backbone2)
 else:
     print(f'{args.method} is not available')
+    raise NotImplementedError()
 if torch.cuda.is_available():
     model.cuda()
 

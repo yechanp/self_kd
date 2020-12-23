@@ -70,14 +70,14 @@ def cal_num_parameters(parameters, file=None):
             print(f'The number of parameters : {num_params/1000000:.2f}M', file=f)
     return num_params
 
-def log(text, logfile, consol=True):
+def log(text, logfile, consol=True, _type='a'):
     """
     Args:
         text: text to print
         logfile: file path to save text
         consol: bool. print text on consol or not
     """
-    with open(logfile, 'a') as f:
+    with open(logfile, _type) as f:
         print(text, file=f)
     if consol:
         print(text)
