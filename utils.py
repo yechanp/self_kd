@@ -71,17 +71,22 @@ def cal_num_parameters(parameters, file=None):
             print(f'The number of parameters : {num_params/1000000:.2f}M', file=f)
     return num_params
 
-def log(text, logfile, consol=True, _type='a'):
-    """
-    Args:
-        text: text to print
-        logfile: file path to save text
-        consol: bool. print text on consol or not
-    """
-    with open(logfile, _type) as f:
-        print(text, file=f)
-    if consol:
-        print(text)
+class Logger():
+    def __init__(self, logfile) -> None:
+        self.logfile = logfile
+        f = open(self.logfile, 'w')
+        f.close()
+
+    def print_args(self, args):
+        self.log(f'Strat time : {current_time(easy=True)}')
+        for key in args.__dict__.keys():
+            self.log(f'{key} : {args.__dict__[key]}')
+    
+    def log(self, text : str, consol : bool = True) -> None:
+        with open(self.logfile, 'a') as f:
+            print(text, file=f)
+        if consol:
+            print(text)
 
 class MultipleOptimizer():
     def __init__(self, op):
@@ -104,16 +109,19 @@ class MultipleSchedulers():
             sch.step()
 
 def add_args(args):
+    ## experiment name
+    args.exp_name = f'{args.method}_{args.exp_name}'
+    if args.backbone != 'resnet18': args.exp_name += f'_{args.backbone}'
     if args.seed: args.exp_name += f'_seed{args.seed}'
     args.exp_name += f'_{current_time()}'
+    ## dir
     args.save_folder = os.path.join('saved_models', args.exp_name)
     args.tb_folder = os.path.join('tb_results', args.exp_name)
     os.makedirs(args.save_folder, exist_ok=True)
     os.makedirs(args.tb_folder, exist_ok=True)
+    ## logfile
     args.logfile = os.path.join(args.save_folder, 'log.txt')
-    log(f'Strat time : {current_time(easy=True)}', logfile=args.logfile, _type='w')
-    for key in args.__dict__.keys():
-        log(f'{key} : {args.__dict__[key]}', logfile=args.logfile)
+    
     
     return args
 

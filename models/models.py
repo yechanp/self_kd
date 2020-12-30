@@ -9,11 +9,12 @@ from utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedu
 
 __all__ = ['BaseMethod', 'AFD', 'DML', 
            'SelfKD_KL', 'SelfKD_KL_Delay', 'SelfKD_AFD',
-           'SelfKD_KL_ExclusiveDropout', 'SelfKD_KL_Multi']
+           'SelfKD_KL_ExclusiveDropout', 'SelfKD_KL_Multi',
+           'SelfKD_KL_once', 'CS_KD']
 class BaseMethod(nn.Module):
 
     def __init__(self, args, backbone):
-        super(BaseMethod, self).__init__()
+        super().__init__()
         self.args = args
         self.backbone = backbone
         self.set_optimizer()
@@ -405,6 +406,24 @@ class SelfKD_KL(DML):
 
         return meters
 
+class SelfKD_KL_once(SelfKD_KL):
+    def __init__(self, args, backbone):
+        super().__init__(args, backbone)
+
+    def calculate_loss(self, x, y):
+        output_wo_dropout, feats = self.make_feats(x)
+        # feats = self.make_feats_with_multiple_dropout(x)
+        outputs_1, outputs_2 = [self.make_output(feats[j]) for j in range(2)]
+        loss_ce = self.criterion_ce(output_wo_dropout, y)
+        # loss_ce = 0.5*(self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y))
+
+        loss_kl1 = self.compute_kl_loss(outputs_1, outputs_2)
+        loss_kl = (self.T**2)*loss_kl1
+
+        loss_logit = loss_ce + loss_kl
+
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
+
 class SelfKD_KL_Delay(SelfKD_KL):
     def __init__(self, args, backbone):
         super().__init__(args, backbone)
@@ -509,6 +528,27 @@ class SelfKD_KL_ExclusiveDropout(SelfKD_KL):
         loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
 
         loss_kl = (self.T**2)*loss_kl1 + (self.T**2)*loss_kl2
+        loss_logit = loss_ce + loss_kl
+
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
+
+
+class CS_KD(SelfKD_KL):
+    def __init__(self, args, backbone):
+        super().__init__(args, backbone)
+
+    def calculate_loss(self, x, y):
+        batch_size = x.size(0)
+
+        y_ = y[:batch_size//2]
+        outputs = self.backbone(x[:batch_size//2])
+        loss_ce = self.criterion_ce(outputs, y_)
+
+        with torch.no_grad():
+            outputs_cls = self.backbone(x[batch_size//2:])
+        loss_kl = self.compute_kl_loss(outputs, outputs_cls.detach())
+        loss_kl *= self.T**2
+
         loss_logit = loss_ce + loss_kl
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
