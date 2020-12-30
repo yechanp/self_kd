@@ -15,16 +15,36 @@ from torch.utils.tensorboard import SummaryWriter
 
 # custom packages
 from dataset import dataset_cifar
-from utils import cal_num_parameters, log, add_args, do_seed, AverageMeter, ProgressMeter
+from utils import cal_num_parameters, log, current_time, AverageMeter, ProgressMeter
 from models import models, resnet
 
-METHOD_NAMES = [name for name in models.__all__
+method_names = [name for name in models.__all__
                 if not name.startswith('__') and callable(models.__dict__[name])]
-BACKBONE_NAMES = sorted(name for name in resnet.__all__
+backbone_names = sorted(name for name in resnet.__all__
                         if name.islower() and not name.startswith("__")
                         and callable(resnet.__dict__[name]))
 
 # deal with params
+def add_args(args):
+    if not os.path.isdir('saved_models'):
+        os.mkdir('saved_models')
+    if not os.path.isdir('tb_results'):
+        os.mkdir('tb_results')
+    if args.seed: args.exp_name += f'_S{args.seed}'
+    args.exp_name += f'_{current_time()}'
+    args.save_folder = os.path.join('saved_models', args.exp_name)
+    args.tb_folder = os.path.join('tb_results', args.exp_name)
+    if not os.path.isdir(args.save_folder):
+        os.mkdir(args.save_folder)
+    if not os.path.isdir(args.tb_folder):
+        os.mkdir(args.tb_folder)
+    args.logfile = os.path.join(args.save_folder, 'log.txt')
+    log(f'Strat time : {current_time(easy=True)}', logfile=args.logfile, _type='w')
+    for key in args.__dict__.keys():
+        log(f'{key} : {args.__dict__[key]}', logfile=args.logfile)
+    
+    return args
+
 def parser_arg():
     parser = argparse.ArgumentParser()
     ## 
@@ -33,11 +53,11 @@ def parser_arg():
     parser.add_argument('--seed', type=int, default=0, help='seed number. if 0, do not fix seed (default: 0)')
 
     ## hyper-parameters
-    parser.add_argument('--method', type=str, default='BaseMethod', metavar='METHOD', choices=METHOD_NAMES, help='model_names: '+
-                                                                                                           ' | '.join(METHOD_NAMES)+
+    parser.add_argument('--method', type=str, default='BaseMethod', metavar='METHOD', choices=method_names, help='model_names: '+
+                                                                                                           ' | '.join(method_names)+
                                                                                                            ' (defualt: BaseMethod)')
-    parser.add_argument('--backbone', type=str, default='resnet18', metavar='BACKBONE', choices=BACKBONE_NAMES, help='Backbone models: '+
-                                                                                                                     ' | '.join(BACKBONE_NAMES)+
+    parser.add_argument('--backbone', type=str, default='resnet18', metavar='BACKBONE', choices=backbone_names, help='Backbone models: '+
+                                                                                                                     ' | '.join(backbone_names)+
                                                                                                                      ' (default: resnet18)')
     parser.add_argument('--epochs', type=int, default=200, help="epoch (default: 200)")
     parser.add_argument('--batch_size', type=int, default=128, help="batch size (default: 128)")
@@ -64,16 +84,25 @@ if __name__ == "__main__":
     os.environ['MKL_NUM_THREADS'] = '1'
     # torch.set_num_threads(1)
 
-    # random seed
+    # RANDOM SEED
+    def seed(seed_num):
+        random.seed(seed_num)
+        np.random.seed(seed_num)
+        torch.manual_seed(seed_num)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed_num)
+            torch.cuda.manual_seed_all(seed_num) # if use multi-GPU
+        # It could be slow
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     if args.seed:    
-        do_seed(args.seed)
-
+        seed(args.seed)
     ### Step 1: init dataloader
     train_dataset, test_dataset = dataset_cifar('cifar100', aug=args.aug)
     trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                shuffle=True, num_workers=1)
+                                                shuffle=True, num_workers=2, prefetch_factor=10)
     testloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size*2,
-                                                shuffle=False, num_workers=1)
+                                                shuffle=False, num_workers=2, prefetch_factor=10)
     ### Step 2: init neural networks
     print("init neural networks")
     ## construct the model

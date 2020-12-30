@@ -7,7 +7,9 @@ import torch.nn.functional as F
 import time
 from utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedulers
 
-__all__ = ['BaseMethod', 'AFD', 'SelfKD_AFD', 'DML', 'SelfKD_KL', 'SelfKD_KL_Delay']
+__all__ = ['BaseMethod', 'AFD', 'DML', 
+           'SelfKD_KL', 'SelfKD_KL_Delay', 'SelfKD_AFD',
+           'SelfKD_KL_ExclusiveDropout', 'SelfKD_KL_Multi']
 class BaseMethod(nn.Module):
 
     def __init__(self, args, backbone):
@@ -444,6 +446,72 @@ class SelfKD_KL_Delay(SelfKD_KL):
         self.lr_scheduler.step()
         return [meter for meter in meters.values() if 'Loss' in meter.name]
 
+class SelfKD_KL_Multi(SelfKD_KL):
+    def __init__(self, args, backbone):
+        super().__init__(args, backbone)
+        self.num_multi = 2
+
+    def make_feats(self, x):
+        net = self.backbone
+        output, feat = net(x, return_feat=True)
+        feats_dropout = [F.dropout2d(feat, p=self.P) for _ in range(self.num_multi)]
+
+        return output, feats_dropout
+
+    def calculate_loss(self, x, y):
+        output_wo_dropout, feats = self.make_feats(x)
+        # feats = self.make_feats_with_multiple_dropout(x)
+        outputs = [self.make_output(feats[j]) for j in range(self.num_multi)]
+        loss_ce = self.criterion_ce(output_wo_dropout, y)
+        # loss_ce = 0.5*(self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y))
+
+        loss_kl = torch.tensor(0, dtype=torch.float32)
+        if torch.cuda.is_available(): loss_kl = loss_kl.cuda()
+        for j in range(self.num_multi):
+            for k in range(self.num_multi):
+                loss_kl += self.compute_kl_loss(outputs[j], outputs[k])
+        loss_kl *= (self.T**2)
+        loss_logit = loss_ce + loss_kl/self.num_multi
+
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
+
+class SelfKD_KL_ExclusiveDropout(SelfKD_KL):
+    def __init__(self, args, backbone):
+        super().__init__(args, backbone)
+
+    def make_output(self, x):
+        net = self.backbone
+        x = net.avgpool(x)
+        x = torch.flatten(x, 1)
+        out = net.fc(x)
+
+        return out
+
+    def make_feats(self, x):
+        net = self.backbone
+        output, feat = net(x, return_feat=True)
+        dropout_idxs = torch.randint(low=1, high=int(1/self.P), size=[feat.size(0), feat.size(1)])
+        dp_factors = [(dropout_idxs!=(j+1)).to(torch.float32).reshape(-1, feat.size(1), 1, 1) for j in range(2)]
+        if torch.cuda.is_available(): dp_factors = [dp_factors[j].cuda() for j in range(2)]
+        dropout_scale = 1/(1-self.P)
+        feats_dropout = [dropout_scale * feat * dp_factors[j] for j in range(2)]
+
+        return output, feats_dropout
+
+    def calculate_loss(self, x, y):
+        output_wo_dropout, feats = self.make_feats(x)
+        # feats = self.make_feats_with_multiple_dropout(x)
+        outputs_1, outputs_2 = [self.make_output(feats[j]) for j in range(2)]
+        loss_ce = self.criterion_ce(output_wo_dropout, y)
+        # loss_ce = 0.5*(self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y))
+
+        loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1)
+        loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
+
+        loss_kl = (self.T**2)*loss_kl1 + (self.T**2)*loss_kl2
+        loss_logit = loss_ce + loss_kl
+
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
 
 """
 def kl_loss_compute(logits1, logits2):

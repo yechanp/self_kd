@@ -1,7 +1,8 @@
 import os
-import time
 import numpy as np
 from datetime import datetime
+import torch
+import random
 
 def current_time(easy=False):
     """
@@ -101,3 +102,29 @@ class MultipleSchedulers():
     def step(self):
         for sch in self.schedulers:
             sch.step()
+
+def add_args(args):
+    if args.seed: args.exp_name += f'_seed{args.seed}'
+    args.exp_name += f'_{current_time()}'
+    args.save_folder = os.path.join('saved_models', args.exp_name)
+    args.tb_folder = os.path.join('tb_results', args.exp_name)
+    os.makedirs(args.save_folder, exist_ok=True)
+    os.makedirs(args.tb_folder, exist_ok=True)
+    args.logfile = os.path.join(args.save_folder, 'log.txt')
+    log(f'Strat time : {current_time(easy=True)}', logfile=args.logfile, _type='w')
+    for key in args.__dict__.keys():
+        log(f'{key} : {args.__dict__[key]}', logfile=args.logfile)
+    
+    return args
+
+def do_seed(seed_num, cudnn_ok=True):
+    random.seed(seed_num)
+    np.random.seed(seed_num)
+    torch.manual_seed(seed_num)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed_num)
+        torch.cuda.manual_seed_all(seed_num) # if use multi-GPU
+    # It could be slow
+    if cudnn_ok:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
