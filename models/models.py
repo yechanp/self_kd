@@ -10,7 +10,7 @@ from utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedu
 __all__ = ['BaseMethod', 'AFD', 'DML', 
            'SelfKD_KL', 'SelfKD_KL_Delay', 'SelfKD_AFD',
            'SelfKD_KL_ExclusiveDropout', 'SelfKD_KL_Multi',
-           'SelfKD_KL_once', 'CS_KD']
+           'SelfKD_KL_once', 'CS_KD', 'SelfKD_KL_multiDropout', 'SelfKD_KL_likeCS']
 class BaseMethod(nn.Module):
 
     def __init__(self, args, backbone):
@@ -378,16 +378,14 @@ class SelfKD_KL(DML):
         return output, feats_dropout
 
     def calculate_loss(self, x, y):
-        output_wo_dropout, feats = self.make_feats(x)
-        # feats = self.make_feats_with_multiple_dropout(x)
-        outputs_1, outputs_2 = [self.make_output(feats[j]) for j in range(2)]
+        output_wo_dropout, feats_dropout = self.make_feats(x)
+        outputs_1, outputs_2 = [self.make_output(feats_dropout[j]) for j in range(2)]
         loss_ce = self.criterion_ce(output_wo_dropout, y)
-        # loss_ce = 0.5*(self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y))
 
         loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1)
         loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
 
-        loss_kl = (self.T**2)*loss_kl1 + (self.T**2)*loss_kl2
+        loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
         loss_logit = loss_ce + loss_kl
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
@@ -412,13 +410,10 @@ class SelfKD_KL_once(SelfKD_KL):
 
     def calculate_loss(self, x, y):
         output_wo_dropout, feats = self.make_feats(x)
-        # feats = self.make_feats_with_multiple_dropout(x)
         outputs_1, outputs_2 = [self.make_output(feats[j]) for j in range(2)]
         loss_ce = self.criterion_ce(output_wo_dropout, y)
-        # loss_ce = 0.5*(self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y))
 
-        loss_kl1 = self.compute_kl_loss(outputs_1, outputs_2)
-        loss_kl = (self.T**2)*loss_kl1
+        loss_kl = (self.T**2)*self.compute_kl_loss(outputs_1, outputs_2)
 
         loss_logit = loss_ce + loss_kl
 
@@ -532,7 +527,6 @@ class SelfKD_KL_ExclusiveDropout(SelfKD_KL):
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
 
-
 class CS_KD(SelfKD_KL):
     def __init__(self, args, backbone):
         super().__init__(args, backbone)
@@ -546,13 +540,54 @@ class CS_KD(SelfKD_KL):
 
         with torch.no_grad():
             outputs_cls = self.backbone(x[batch_size//2:])
-        loss_kl = self.compute_kl_loss(outputs, outputs_cls.detach())
-        loss_kl *= self.T**2
+        loss_kl = (self.T**2)*self.compute_kl_loss(outputs, outputs_cls.detach())
 
         loss_logit = loss_ce + loss_kl
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
 
+class SelfKD_KL_likeCS(SelfKD_KL):
+    def __init__(self, args, backbone):
+        super().__init__(args, backbone)
+
+    def calculate_loss(self, x, y):
+        output_wo_dropout, feats = self.make_feats(x)
+        outputs_1, outputs_2 = [self.make_output(feats[j]) for j in range(2)]
+        loss_ce = self.criterion_ce(output_wo_dropout, y)
+
+        loss_kl = (self.T**2)*self.compute_kl_loss(outputs_1, outputs_2.detach())
+
+        loss_logit = loss_ce + loss_kl
+
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
+
+class SelfKD_KL_multiDropout(SelfKD_KL):
+    def __init__(self, args, backbone):
+        super().__init__(args, backbone)
+        self.dropout = nn.Dropout2d(p=self.P)
+
+    def make_feats(self, x):
+        net = self.backbone
+        output = net.conv1(x)
+        output = net.bn1(output)
+        output = net.relu(output)
+
+        output = net.layer1(output)
+        feats_dropout = [self.dropout(output) for _ in range(2)]
+
+        output = net.layer2(output)
+        feats_dropout = [self.dropout(net.layer2(out_dp)) for out_dp in feats_dropout]
+
+        output = net.layer3(output)
+        feats_dropout = [self.dropout(net.layer3(out_dp)) for out_dp in feats_dropout]
+
+        output = net.layer4(output)
+        feats_dropout = [self.dropout(net.layer4(out_dp)) for out_dp in feats_dropout]
+
+        output = self.make_output(output)
+
+        return output, feats_dropout
+    
 """
 def kl_loss_compute(logits1, logits2):
     

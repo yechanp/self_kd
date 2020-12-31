@@ -29,6 +29,7 @@ def parser_arg():
     ## 
     parser.add_argument('--exp_name', type=str, default='', help="the name of experiment")
     parser.add_argument('-g', '--gpu', type=int, dest='gpu', default=0, help="gpu")
+    parser.add_argument('--num_threads', type=int, default=1, help="the number of threads (default: 1)")
     parser.add_argument('--seed', type=int, default=0, help='seed number. if 0, do not fix seed (default: 0)')
 
     ## hyper-parameters
@@ -46,7 +47,7 @@ def parser_arg():
 
     ## debug
     # args, _ = parser.parse_known_args('-g 1 --exp_name debug --seed 777 \
-    #                                    --backbone resnet18 --method CS_KD \
+    #                                    --backbone resnet18 --method SelfKD_KL_likeCS \
     #                                    --batch_size 128'.split())
                                        
     ## real
@@ -59,8 +60,8 @@ if __name__ == "__main__":
     # set environment variables: gpu, num_thread
     args = parser_arg()
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
-    os.environ['OMP_NUM_THREADS'] = '1'
-    os.environ['MKL_NUM_THREADS'] = '1'
+    os.environ['OMP_NUM_THREADS'] = str(args.num_threads)
+    os.environ['MKL_NUM_THREADS'] = str(args.num_threads)
     # torch.set_num_threads(1)
 
     # logger
@@ -72,7 +73,7 @@ if __name__ == "__main__":
         do_seed(args.seed)
         logger.log(f'The fixed seed number is {args.seed}')
 
-    ### Step 1: init dataloader
+    ############### Load Data ###############
     if not 'CS' in args.method:
         train_dataset, test_dataset = dataset_cifar('cifar100', aug=args.aug)
         trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
@@ -82,11 +83,12 @@ if __name__ == "__main__":
     else:
         trainloader, testloader = load_dataset('cifar100', 'dataset', 'pair', batch_size=args.batch_size)
         logger.log('Dataset for Class-wise Self KD')
-    ### Step 2: init neural networks
+    
+    ############### Define Model ###############
     print("init neural networks")
     ## construct the model
     backbone = resnet.__dict__[args.backbone](num_classes=100)
-    if 'Base' in args.method or 'Self' in args.method or 'KD' in args.method:
+    if 'Base' in args.method or 'KD' in args.method:
         model = models.__dict__[args.method](args, backbone)
     elif args.method in ['AFD', 'DML']:
         backbone2 = resnet.__dict__[args.backbone](num_classes=100)
@@ -140,4 +142,6 @@ if __name__ == "__main__":
             filename = os.path.join(args.save_folder, 'checkpoint_best.pth.tar')
             logger.log('#'*20+'Save Best Model'+'#'*20)
             torch.save(state, filename)
+        
+        end = time.time()
     writer.close()
