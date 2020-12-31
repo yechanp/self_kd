@@ -34,5 +34,6 @@ def dataset_cifar(mode, root=DATAPATH, aug=False):
                                                 download=True, transform=transform_test)
     else:
         print(f'{mode} mode is not available')
+        raise NotImplementedError
 
     return trainset, testset
