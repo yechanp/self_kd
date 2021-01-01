@@ -28,9 +28,9 @@ def parser_arg():
     parser = argparse.ArgumentParser()
     ## 
     parser.add_argument('--exp_name', type=str, default='', help="the name of experiment")
-    parser.add_argument('-g', '--gpu', type=int, dest='gpu', default=0, help="gpu")
-    parser.add_argument('--num_threads', type=int, default=1, help="the number of threads (default: 1)")
-    parser.add_argument('--seed', type=int, default=0, help='seed number. if 0, do not fix seed (default: 0)')
+    parser.add_argument('-g', '--gpu', type=int, dest='gpu', metavar='N', default=0, help="gpu")
+    parser.add_argument('--num_threads', type=int, default=1, metavar='N', help="the number of threads (default: 1)")
+    parser.add_argument('--seed', type=int, default=0, metavar='N', help='seed number. if 0, do not fix seed (default: 0)')
 
     ## hyper-parameters
     parser.add_argument('--method', type=str, default='BaseMethod', metavar='METHOD', choices=METHOD_NAMES, help='model_names: '+
@@ -39,15 +39,15 @@ def parser_arg():
     parser.add_argument('--backbone', type=str, default='resnet18', metavar='BACKBONE', choices=BACKBONE_NAMES, help='Backbone models: '+
                                                                                                                      ' | '.join(BACKBONE_NAMES)+
                                                                                                                      ' (default: resnet18)')
-    parser.add_argument('--epochs', type=int, default=200, help="epoch (default: 200)")
-    parser.add_argument('--batch_size', type=int, default=128, help="batch size (default: 128)")
-    parser.add_argument('-t', type=float, default=3.0, help="temperature (default: 3)")
+    parser.add_argument('--epochs', type=int, default=200, metavar='N', help="epoch (default: 200)")
+    parser.add_argument('--batch_size', type=int, default=128, metavar='N', help="batch size (default: 128)")
+    parser.add_argument('-t', type=float, default=3.0, help="temperature (default: 3.0)")
     parser.add_argument('-p', type=float, default=0.2, help="the probability of dropout (default: 0.2)")
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
 
     ## debug
-    # args, _ = parser.parse_known_args('-g 1 --exp_name debug --seed 777 \
-    #                                    --backbone resnet18 --method SelfKD_KL_likeCS \
+    # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 777 \
+    #                                    --backbone resnet18_feature --method SelfKD_KL_layer3 \
     #                                    --batch_size 128'.split())
                                        
     ## real
@@ -74,7 +74,7 @@ if __name__ == "__main__":
         logger.log(f'The fixed seed number is {args.seed}')
 
     ############### Load Data ###############
-    if not 'CS' in args.method:
+    if args.method != 'CS_KD':
         train_dataset, test_dataset = dataset_cifar('cifar100', aug=args.aug)
         trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                                     shuffle=True, num_workers=1)
