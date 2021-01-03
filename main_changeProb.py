@@ -8,7 +8,6 @@ import os
 import time
 import argparse
 import torch
-from torch.optim.lr_scheduler import StepLR
 from torch.utils.tensorboard import SummaryWriter
 
 # custom packages
@@ -31,6 +30,7 @@ def parser_arg():
     parser.add_argument('-g', '--gpu', type=int, dest='gpu', metavar='N', default=0, help="gpu")
     parser.add_argument('--num_threads', type=int, default=1, metavar='N', help="the number of threads (default: 1)")
     parser.add_argument('--seed', type=int, default=0, metavar='N', help='seed number. if 0, do not fix seed (default: 0)')
+    parser.add_argument('--resume', type=str, default='', help='resume path')
 
     ## hyper-parameters
     parser.add_argument('--method', type=str, default='BaseMethod', metavar='METHOD', choices=METHOD_NAMES, help='model_names: '+
@@ -101,10 +101,22 @@ if __name__ == "__main__":
         backbone2 = resnet.__dict__[args.backbone](num_classes=100)
         model = models.__dict__[args.method](args, backbone, backbone2)
     else:
-        print(f'{args.method} is not available')
+        logger.log(f'{args.method} is not available')
         raise NotImplementedError()
     if torch.cuda.is_available():
         model.cuda()
+
+    ## load model
+    if args.resume:
+        state = torch.load(args.resume)
+        epoch_init = state['epoch']
+        logger.log(f'Re-Training, Load Model {args.resume}')
+        logger.log(f'Load at epoch {epoch_init}')
+        model.load_state_dict(state['state_dict'])
+        model.optimizer.load_state_dict(state['optimizer'])
+        epoch_init += 1
+    else:
+        epoch_init = 1
 
     # calculate the number of parameters
     cal_num_parameters(model.parameters(), file=args.logfile)
@@ -119,7 +131,7 @@ if __name__ == "__main__":
     end = time.time()
     max_acc = 0.0
     flag = 0
-    for epoch in range(1, args.epochs+1):
+    for epoch in range(epoch_init, args.epochs+1):
         ## change dropout prob
         if epoch in args.change_epoch:
             model.P = args.change_prob[flag]
@@ -151,13 +163,17 @@ if __name__ == "__main__":
         ## save
         state = {'args' : args,
                 'epoch' : epoch,
-                'state_dict' : model.state_dict(),}
-                #  'optimizer' : model.optimizer.state_dict()}
+                'state_dict' : model.state_dict(),
+                'optimizer' : model.optimizer.state_dict()}
 
         if max_acc < eval_acc:
             max_acc = eval_acc
             filename = os.path.join(args.save_folder, 'checkpoint_best.pth.tar')
             logger.log('#'*20+'Save Best Model'+'#'*20)
+            torch.save(state, filename)
+        
+        if epoch in [49, 50, 99, 100, 149, 150]:
+            filename = os.path.join(args.save_folder, f'checkpoint_epoch{epoch:03d}.pth.tar')
             torch.save(state, filename)
         
         end = time.time()

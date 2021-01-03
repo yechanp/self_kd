@@ -98,7 +98,7 @@ class BaseMethod(nn.Module):
         self.eval()
         correct = 0
         total = 0
-        for i, (x, y) in enumerate(dataloader):
+        for x, y in dataloader:
             if torch.cuda.is_available():
                 x, y = x.cuda(), y.cuda()
             outputs = self.forward(x)

@@ -1,8 +1,10 @@
 import os
+from typing import List
 import numpy as np
 from datetime import datetime
-import torch
 import random
+import torch
+from torch.optim.optimizer import Optimizer
 
 def current_time(easy=False):
     """
@@ -89,7 +91,7 @@ class Logger():
             print(text)
 
 class MultipleOptimizer():
-    def __init__(self, op):
+    def __init__(self, op: List[Optimizer]) -> None:
         self.optimizers = op
 
     def zero_grad(self):
@@ -99,6 +101,17 @@ class MultipleOptimizer():
     def step(self):
         for op in self.optimizers:
             op.step()
+
+    def state_dict(self) -> List:
+        state = []
+        for op in self.optimizers:
+            state.append(op.state_dict())
+        return state
+    
+    def load_state_dict(self, state: List) -> None:
+        assert len(self.optimizers) == len(state), "Lengths must be equal"
+        for op, st in zip(self.optimizers, state):
+            op.load_state_dict(st)
 
 class MultipleSchedulers():
     def __init__(self, schs):
