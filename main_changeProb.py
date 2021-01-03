@@ -44,15 +44,21 @@ def parser_arg():
     parser.add_argument('-t', type=float, default=3.0, help="temperature (default: 3.0)")
     parser.add_argument('-p', type=float, default=0.2, help="the probability of dropout (default: 0.2)")
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
+    parser.add_argument('--ch_ep', dest='change_epoch', type=int, nargs='+', help="<Required> (default: [150])", required=True)
+    parser.add_argument('--ch_prob', dest='change_prob', type=float, nargs='+', help="<Required> (default: [0.2])", required=True)
 
     ## debug
     # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 777 \
-    #                                    --backbone resnet18_feature --method SelfKD_KL_layer3 \
+    #                                    --backbone resnet18 --method SelfKD_KL --ch_ep 5 10 --ch_prob 0.2 0.1 -p 0.5 \
     #                                    --batch_size 128'.split())
                                        
     ## real
     args, _ = parser.parse_known_args()
 
+    assert len(args.change_epoch) == len(args.change_prob), "--ch_ep, --ch_prob must have same length"
+    print(f"Change Dropout Prob: \t{args.change_epoch}\n\t\t\t{args.change_prob}")
+    args.exp_name += '_ChangeProb_'+'_'.join([str(s) for s in args.change_epoch + args.change_prob]) 
+    
     return add_args(args)
 
 if __name__ == "__main__":
@@ -67,6 +73,7 @@ if __name__ == "__main__":
     # logger
     logger = Logger(args.logfile)
     logger.print_args(args)
+    logger.log(f"Change Dropout Prob: \t{args.change_epoch}\n\t\t\t\t\t\t{args.change_prob}")
 
     # random seed
     if args.seed:    
@@ -105,12 +112,19 @@ if __name__ == "__main__":
     ############### Training ###############
     ## log
     log_list = [meter for meter in model.set_log(0, 0)[0].values() if not meter.name == 'Data']
+    log_list.append(AverageMeter('Dropout_Prob', ':.1f'))
     log_list.append(AverageMeter('Test_Acc', ':.4f'))
     progress = ProgressMeter(args.epochs, meters=log_list, prefix=f'EPOCH')
     writer = SummaryWriter(log_dir=args.tb_folder)
     end = time.time()
     max_acc = 0.0
+    flag = 0
     for epoch in range(1, args.epochs+1):
+        ## change dropout prob
+        if epoch in args.change_epoch:
+            model.P = args.change_prob[flag]
+            flag += 1
+        
         ## train
         loss_list = model.train_loop(trainloader, epoch=epoch)
         log_list[0].update(time.time() - end)
@@ -126,6 +140,9 @@ if __name__ == "__main__":
         for i, opt in enumerate(model.optimizer.optimizers):
             writer.add_scalar(lr_name, opt.param_groups[0]['lr'], epoch)
             lr_name = f'lr_{i+2}'
+        log_list[-2].update(model.P)
+        writer.add_scalar(log_list[-2].name, model.P, epoch)
+
         log_list[-1].update(eval_acc)
         writer.add_scalar(log_list[-1].name, eval_acc, epoch)
 

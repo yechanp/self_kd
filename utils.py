@@ -111,6 +111,8 @@ class MultipleSchedulers():
 def add_args(args):
     ## experiment name
     args.exp_name = f'{args.method}_{args.exp_name}'
+    if 'Self' in args.method: args.exp_name += f'_p{args.p}'
+    if 'KD'   in args.method: args.exp_name += f'_t{args.t}'
     if args.backbone != 'resnet18': args.exp_name += f'_{args.backbone}'
     if args.seed: args.exp_name += f'_seed{args.seed}'
     args.exp_name += f'_{current_time()}'

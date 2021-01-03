@@ -1,6 +1,10 @@
 #-------------------------------------
 # 
 #-------------------------------------
+from typing import Dict, List, Callable, Union, Any, TypeVar, Tuple
+from torch import Tensor
+from torch.nn import Module
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,13 +18,13 @@ __all__ = ['BaseMethod', 'AFD', 'DML',
            'SelfKD_KL_likeCS', 'SelfKD_KL_likeCS_twice', 'SelfKD_KL_layer3']
 class BaseMethod(nn.Module):
 
-    def __init__(self, args, backbone):
+    def __init__(self, args, backbone: Module) -> None:
         super().__init__()
         self.args = args
         self.backbone = backbone
         self.set_optimizer()
         
-    def set_log(self, epoch, num_batchs):
+    def set_log(self, epoch: int, num_batchs: int) -> Tuple[Dict[str, AverageMeter], ProgressMeter]:
         meters = {}
         meters['batch_time'] = AverageMeter('Time', ':.3f')
         meters['data_time'] = AverageMeter('Data', ':.3f')
@@ -32,35 +36,38 @@ class BaseMethod(nn.Module):
         
         return meters, progress
 
-    def set_optimizer(self):
+    def set_optimizer(self) -> None:
         self.criterion = nn.CrossEntropyLoss()
         optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
         lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
         self.optimizer = MultipleOptimizer([optimizer])
         self.lr_scheduler = MultipleSchedulers([lr_scheduler])
 
-    def forward(self, x):
+    def forward(self, x) -> Tensor:
         return self.backbone(x)
     
-    def calculate_loss(self, x, y):
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
         outputs = self.forward(x)
         loss = self.criterion(outputs, y)
 
         return {'loss':loss}
 
-    def update_optimizer(self, results):
+    def update_optimizer(self, results: Dict[str, Tensor]) -> None:
         loss = results['loss']
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-    def update_log(self, results, meters, size, end):
+    def update_log(self, 
+                   results: Dict[str, Tensor], 
+                   meters: Dict[str, AverageMeter], 
+                   size: int, end) -> Dict[str, AverageMeter]:
         meters['losses'].update(results['loss'].item(), size)
         meters['batch_time'].update(time.time() - end)
 
         return meters
 
-    def train_loop(self, dataloader, epoch, freq=10):
+    def train_loop(self, dataloader, epoch: int, freq: int = 10) -> Dict[str, AverageMeter]:
         self.train()
         meters, progress = self.set_log(epoch, len(dataloader))
         end = time.time()
@@ -87,7 +94,7 @@ class BaseMethod(nn.Module):
         return [meter for meter in meters.values() if 'Loss' in meter.name]
 
     @torch.no_grad()
-    def evaluation(self, dataloader):
+    def evaluation(self, dataloader) -> float:
         self.eval()
         correct = 0
         total = 0
@@ -104,7 +111,7 @@ class BaseMethod(nn.Module):
         return 100*correct/total
 
 class DML(BaseMethod):
-    def __init__(self, args, backbone, backbone2):
+    def __init__(self, args, backbone: Module, backbone2: Module) -> None:
         super(BaseMethod, self).__init__()
         self.args = args
         self.T = args.t
@@ -112,8 +119,8 @@ class DML(BaseMethod):
         self.backbone2 = backbone2
         ## parameters
         self.set_optimizer()
-    
-    def set_optimizer(self):
+
+    def set_optimizer(self) -> None:
         self.criterion_ce = nn.CrossEntropyLoss()
         self.criterion_kl = nn.KLDivLoss(reduction='batchmean')
         optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
@@ -121,7 +128,7 @@ class DML(BaseMethod):
         self.optimizer = MultipleOptimizer([optimizer])
         self.lr_scheduler = MultipleSchedulers([lr_scheduler])
     
-    def set_log(self, epoch, num_batchs):
+    def set_log(self, epoch: int, num_batchs: int) -> Tuple[Dict[str, AverageMeter], ProgressMeter]:
         meters, _ = super().set_log(epoch, num_batchs)
         meters['kl_losses'] = AverageMeter('KL_Loss', ':.4f')
         
@@ -129,12 +136,12 @@ class DML(BaseMethod):
                                 prefix=f'Epoch[{epoch}] Batch')
         return meters, progress
 
-    def compute_kl_loss(self, out1, out2):
+    def compute_kl_loss(self, out1: Tensor, out2: Tensor) -> Tensor:
         pred1_log = F.log_softmax(out1/self.T, dim=1)
         pred2 = F.softmax(out2/self.T, dim=1)
         return self.criterion_kl(pred1_log, pred2)
 
-    def calculate_loss(self, x, y):
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
         outputs_1, outputs_2 = self.backbone(x), self.backbone2(x)
         loss_ce1 = self.criterion_ce(outputs_1, y)
         loss_ce2 = self.criterion_ce(outputs_2, y)
@@ -148,14 +155,16 @@ class DML(BaseMethod):
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
 
-    def update_optimizer(self, results):
+    def update_optimizer(self, results: Dict[str, Tensor]) -> None:
         loss_logit = results['loss_logit']
 
         self.optimizer.zero_grad()
         loss_logit.backward()
         self.optimizer.step()
 
-    def update_log(self, results, meters, size, end):
+    def update_log(self, results: Dict[str, Tensor], 
+                   meters: Dict[str, AverageMeter], 
+                   size: int, end) -> Dict[str, AverageMeter]:
         meters['losses'].update(results['loss_ce'].item(), size)
         meters['kl_losses'].update(results['loss_kl'].item(), size)
         meters['batch_time'].update(time.time() - end)
@@ -355,7 +364,7 @@ class SelfKD_AFD(AFD):
         return meters
 
 class SelfKD_KL(DML):
-    def __init__(self, args, backbone):
+    def __init__(self, args, backbone: Module) -> None:
         super(BaseMethod, self).__init__()
         self.T = args.t
         self.P = args.p
@@ -363,7 +372,7 @@ class SelfKD_KL(DML):
         ## parameters
         self.set_optimizer()
 
-    def make_output(self, x):
+    def make_output(self, x: Tensor) -> Tensor:
         net = self.backbone
         x = net.avgpool(x)
         x = torch.flatten(x, 1)
@@ -371,14 +380,14 @@ class SelfKD_KL(DML):
 
         return out
 
-    def make_feats(self, x):
+    def make_feats(self, x: Tensor) -> Tuple[Tensor]:
         net = self.backbone
         output, feat = net(x, return_feat=True)
         feats_dropout = [F.dropout2d(feat, p=self.P) for _ in range(2)]
 
         return output, feats_dropout
 
-    def calculate_loss(self, x, y):
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
         output_wo_dropout, feats_dropout = self.make_feats(x)
         outputs_1, outputs_2 = [self.make_output(feats_dropout[j]) for j in range(2)]
         loss_ce = self.criterion_ce(output_wo_dropout, y)
@@ -391,14 +400,16 @@ class SelfKD_KL(DML):
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
 
-    def update_optimizer(self, results):
+    def update_optimizer(self, results: Dict[str, Tensor]) -> None:
         loss_logit = results['loss_logit']
 
         self.optimizer.zero_grad()
         loss_logit.backward()
         self.optimizer.step()
 
-    def update_log(self, results, meters, size, end):
+    def update_log(self, results: Dict[str, Tensor], 
+                   meters: Dict[str, AverageMeter], 
+                   size: int, end) -> Dict[str, AverageMeter]:
         meters['losses'].update(results['loss_ce'].item(), size)
         meters['kl_losses'].update(results['loss_kl'].item(), size)
         meters['batch_time'].update(time.time() - end)
@@ -529,10 +540,10 @@ class SelfKD_KL_ExclusiveDropout(SelfKD_KL):
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
 
 class CS_KD(SelfKD_KL):
-    def __init__(self, args, backbone):
+    def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
 
-    def calculate_loss(self, x, y):
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
         batch_size = x.size(0)
 
         y_ = y[:batch_size//2]
