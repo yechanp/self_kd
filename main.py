@@ -47,8 +47,7 @@ def parser_arg():
 
     ## debug
     # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 777 \
-    #                                    --backbone resnet18 --method SelfKD_KL --epochs 5 \
-    #                                    --resume saved_models/SelfKD_KL_debug_p0.2_t3.0_seed777_20210104_020717/checkpoint_epoch001.pth.tar \
+    #                                    --backbone resnet18 --method SelfKD_KL_logit \
     #                                    --batch_size 128'.split())
                                        
     ## real

@@ -56,7 +56,6 @@ def parser_arg():
     args, _ = parser.parse_known_args()
 
     assert len(args.change_epoch) == len(args.change_prob), "--ch_ep, --ch_prob must have same length"
-    print(f"Change Dropout Prob: \t{args.change_epoch}\n\t\t\t{args.change_prob}")
     args.exp_name += '_ChangeProb_'+'_'.join([str(s) for s in args.change_epoch + args.change_prob]) 
     
     return add_args(args)

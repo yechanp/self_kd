@@ -15,7 +15,8 @@ __all__ = ['BaseMethod', 'AFD', 'DML',
            'SelfKD_KL', 'SelfKD_KL_Delay', 'SelfKD_AFD',
            'SelfKD_KL_ExclusiveDropout', 'SelfKD_KL_Multi',
            'SelfKD_KL_once', 'CS_KD', 'SelfKD_KL_multiDropout', 
-           'SelfKD_KL_likeCS', 'SelfKD_KL_likeCS_twice', 'SelfKD_KL_layer3']
+           'SelfKD_KL_likeCS', 'SelfKD_KL_likeCS_twice', 'SelfKD_KL_layer3',
+           'SelfKD_KL_logit']
 class BaseMethod(nn.Module):
 
     def __init__(self, args, backbone: Module) -> None:
@@ -412,6 +413,40 @@ class SelfKD_KL(DML):
                    size: int, end) -> Dict[str, AverageMeter]:
         meters['losses'].update(results['loss_ce'].item(), size)
         meters['kl_losses'].update(results['loss_kl'].item(), size)
+        meters['batch_time'].update(time.time() - end)
+
+        return meters
+
+class SelfKD_KL_logit(SelfKD_KL):
+    def __init__(self, args, backbone: Module) -> None:
+        super().__init__(args, backbone)
+
+    def set_log(self, epoch: int, num_batchs: int) -> Tuple[Dict[str, AverageMeter], ProgressMeter]:
+        meters, _ = super().set_log(epoch, num_batchs)
+        meters['dropout_logit_losses'] = AverageMeter('Dropout_Logit_Loss', ':.4f')
+        
+        progress = ProgressMeter(num_batchs, meters=meters.values(),
+                                prefix=f'Epoch[{epoch}] Batch')
+        return meters, progress
+
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
+        output_wo_dropout, feats_dropout = self.make_feats(x)
+        outputs_1, outputs_2 = [self.make_output(feats_dropout[j]) for j in range(2)]
+        loss_ce = self.criterion_ce(output_wo_dropout, y)
+        loss_dropout_logit = self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y)
+
+        loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1)
+        loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
+
+        loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
+        loss_logit = loss_ce + loss_kl + 0.5*loss_dropout_logit
+
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit, 'loss_dropout_logit':loss_dropout_logit}
+
+    def update_log(self, results: Dict[str, Tensor], meters: Dict[str, AverageMeter], size: int, end) -> Dict[str, AverageMeter]:
+        meters['losses'].update(results['loss_ce'].item(), size)
+        meters['kl_losses'].update(results['loss_kl'].item(), size)
+        meters['dropout_logit_losses'].update(results['loss_dropout_logit'].item(), size)   # add
         meters['batch_time'].update(time.time() - end)
 
         return meters
