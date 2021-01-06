@@ -293,20 +293,20 @@ class SelfKD_KL_contrastive(SelfKD_KL):
         progress = ProgressMeter(num_batchs, meters=meters.values(),
                                 prefix=f'Epoch[{epoch}] Batch')
         return meters, progress
-
+    # TODO
     def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
-        # output_wo_dropout, feats_dropout = self.make_feats(x)
-        # outputs_1, outputs_2 = [self.make_output(feats_dropout[j]) for j in range(2)]
-        # loss_ce = self.criterion_ce(output_wo_dropout, y)
-        # loss_dropout_logit = self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y)
+        output_wo_dropout, feats_dropout = self.make_feats(x)
+        outputs_1, outputs_2 = [self.make_output(feats_dropout[j]) for j in range(2)]
+        loss_ce = self.criterion_ce(output_wo_dropout, y)
+        loss_dropout_logit = self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y)
 
-        # loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1)
-        # loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
+        loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1)
+        loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
 
-        # loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
-        # loss_logit = loss_ce + loss_kl + 0.5*loss_dropout_logit
+        loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
+        loss_logit = loss_ce + loss_kl + 0.5*loss_dropout_logit
 
-        # return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit, 'loss_contra':loss_dropout_logit}
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit, 'loss_contra':loss_dropout_logit}
 
     def update_log(self, results: Dict[str, Tensor], meters: Dict[str, AverageMeter], size: int, end) -> Dict[str, AverageMeter]:
         meters['losses'].update(results['loss_ce'].item(), size)
