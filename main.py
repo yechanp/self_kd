@@ -2,6 +2,10 @@
 2020-12-30
 Hyoje Lee
 
+python main.py --method BaseMethod --backbone resnet34 --seed 1
+python main.py --method SelfKD_KL  --backbone resnet34 --seed 1 -p 0.5
+python main.py --method CS_KD      --backbone resnet34 --seed 1
+
 """
 # imports base packages
 import os
@@ -42,12 +46,12 @@ def parser_arg():
     parser.add_argument('--epochs', type=int, default=200, metavar='N', help="epoch (default: 200)")
     parser.add_argument('--batch_size', type=int, default=128, metavar='N', help="batch size (default: 128)")
     parser.add_argument('-t', type=float, default=3.0, help="temperature (default: 3.0)")
-    parser.add_argument('-p', type=float, default=0.2, help="the probability of dropout (default: 0.2)")
+    parser.add_argument('-p', type=float, default=0.5, help="the probability of dropout (default: 0.5)")
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
 
     ## debug
     # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 777 \
-    #                                    --backbone resnet18 --method SelfKD_KL_logit \
+    #                                    --backbone resnet18 --method CS_KD_with_SelfKD_KL \
     #                                    --batch_size 128'.split())
                                        
     ## real
@@ -74,7 +78,7 @@ if __name__ == "__main__":
         logger.log(f'The fixed seed number is {args.seed}')
 
     ############### Load Data ###############
-    if args.method != 'CS_KD':
+    if 'CS_KD' not in args.method:
         train_dataset, test_dataset = dataset_cifar('cifar100', aug=args.aug)
         trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                                     shuffle=True, num_workers=1)
