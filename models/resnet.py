@@ -11,18 +11,16 @@ import torch.nn as nn
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
-           'wide_resnet50_2', 'wide_resnet101_2', 'resnet18_dropout', 'resnet18_feature']
+           'wide_resnet50_2', 'wide_resnet101_2']
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=dilation, groups=groups, bias=False, dilation=dilation)
 
-
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
-
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -62,7 +60,6 @@ class BasicBlock(nn.Module):
         out = self.relu(out)
 
         return out
-
 
 class Bottleneck(nn.Module):
     # Bottleneck in torchvision places the stride for downsampling at 3x3 convolution(self.conv2)
@@ -110,7 +107,6 @@ class Bottleneck(nn.Module):
         out = self.relu(out)
 
         return out
-
 
 class ResNet(nn.Module):
 
@@ -193,94 +189,28 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x, return_feat=False):
+    def forward(self, x: torch.Tensor, return_feat : bool = False):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
         # x = self.maxpool(x)   For cifar dataset
 
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        feat = x
+        feat1 = self.layer1(x)
+        feat2 = self.layer2(feat1)
+        feat3 = self.layer3(feat2)
+        feat4 = self.layer4(feat3)
 
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
+        out = self.avgpool(feat4)
+        out = torch.flatten(out, 1)
+        out = self.fc(out)
         if return_feat:
-            return x, feat
+            return out, [feat1, feat2, feat3, feat4]
         else:
-            return x
-
-class ResNet_dropout(ResNet):
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
-                 groups=1, width_per_group=64, replace_stride_with_dilation=None,
-                 norm_layer=None):
-        super(ResNet_dropout, self).__init__(block, layers, num_classes, zero_init_residual,
-                 groups, width_per_group, replace_stride_with_dilation,
-                 norm_layer)
-        self.dropout = nn.Dropout2d(p=0.2)
-
-    def forward(self, x, return_feat=False):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        # x = self.maxpool(x)   For cifar dataset
-
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.dropout(x)     # Difference Only
-        feat = x
-
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
-        if return_feat:
-            return x, feat
-        else:
-            return x
-
-class ResNet_Feature(ResNet):
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
-                 groups=1, width_per_group=64, replace_stride_with_dilation=None,
-                 norm_layer=None):
-        super().__init__(block, layers, num_classes, zero_init_residual,
-                 groups, width_per_group, replace_stride_with_dilation,
-                 norm_layer)
-
-    def forward(self, x, return_feat=False):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        # x = self.maxpool(x)   For cifar dataset
-
-        x1 = self.layer1(x)
-        x2 = self.layer2(x1)
-        x3 = self.layer3(x2)
-        x4 = self.layer4(x3)
-
-        x = self.avgpool(x4)
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
-        if return_feat:
-            return x, [x1, x2, x3, x4]
-        else:
-            return x            
+            return out
 
 def _resnet(block, layers, **kwargs):
     model = ResNet(block, layers, **kwargs)
     return model
-
-def resnet18_dropout(**kwargs):
-    model = ResNet_dropout(BasicBlock, [2, 2, 2, 2], **kwargs)
-    return model
-
-def resnet18_feature(**kwargs):
-    model = ResNet_Feature(BasicBlock, [2, 2, 2, 2], **kwargs)
-    return model    
 
 def resnet18(**kwargs):
     r"""ResNet-18 model from
@@ -291,7 +221,6 @@ def resnet18(**kwargs):
     """
     return _resnet(BasicBlock, [2, 2, 2, 2], **kwargs)
 
-
 def resnet34(**kwargs):
     r"""ResNet-34 model from
     `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
@@ -300,7 +229,6 @@ def resnet34(**kwargs):
         progress (bool): If True, displays a progress bar of the download to stderr
     """
     return _resnet(BasicBlock, [3, 4, 6, 3], **kwargs)
-
 
 def resnet50(**kwargs):
     r"""ResNet-50 model from
@@ -311,7 +239,6 @@ def resnet50(**kwargs):
     """
     return _resnet(Bottleneck, [3, 4, 6, 3], **kwargs)
 
-
 def resnet101(**kwargs):
     r"""ResNet-101 model from
     `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
@@ -321,7 +248,6 @@ def resnet101(**kwargs):
     """
     return _resnet(Bottleneck, [3, 4, 23, 3], **kwargs)
 
-
 def resnet152(**kwargs):
     r"""ResNet-152 model from
     `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_.
@@ -330,7 +256,6 @@ def resnet152(**kwargs):
         progress (bool): If True, displays a progress bar of the download to stderr
     """
     return _resnet(Bottleneck, [3, 8, 36, 3], **kwargs)
-
 
 def resnext50_32x4d(**kwargs):
     r"""ResNeXt-50 32x4d model from
@@ -343,7 +268,6 @@ def resnext50_32x4d(**kwargs):
     kwargs['width_per_group'] = 4
     return _resnet(Bottleneck, [3, 4, 6, 3], **kwargs)
 
-
 def resnext101_32x8d(**kwargs):
     r"""ResNeXt-101 32x8d model from
     `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_.
@@ -354,7 +278,6 @@ def resnext101_32x8d(**kwargs):
     kwargs['groups'] = 32
     kwargs['width_per_group'] = 8
     return _resnet(Bottleneck, [3, 4, 23, 3], **kwargs)
-
 
 def wide_resnet50_2(**kwargs):
     r"""Wide ResNet-50-2 model from
@@ -369,7 +292,6 @@ def wide_resnet50_2(**kwargs):
     """
     kwargs['width_per_group'] = 64 * 2
     return _resnet(Bottleneck, [3, 4, 6, 3], **kwargs)
-
 
 def wide_resnet101_2(**kwargs):
     r"""Wide ResNet-101-2 model from

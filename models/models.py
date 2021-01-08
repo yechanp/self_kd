@@ -11,13 +11,11 @@ import torch.nn.functional as F
 import time
 from utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedulers
 
-__all__ = ['BaseMethod', 'AFD', 'DML', 
-           'SelfKD_KL', 'SelfKD_KL_Delay', 'SelfKD_AFD',
-           'SelfKD_KL_ExclusiveDropout', 'SelfKD_KL_Multi',
-           'SelfKD_KL_once', 'CS_KD', 'SelfKD_KL_multiDropout', 
-           'SelfKD_KL_likeCS', 'SelfKD_KL_likeCS_twice', 'SelfKD_KL_layer3',
-           'SelfKD_KL_logit', 'SelfKD_KL_dropoutRand', 'SelfKD_KL_dp_rate',
-           'CS_KD_with_SelfKD_KL']
+__all__ = ['BaseMethod', 'DML', 'AFD', 'SelfKD_AFD',
+           'SelfKD_KL', 'SelfKD_KL_ExclusiveDropout', 'SelfKD_KL_Multi',
+           'CS_KD', 'SelfKD_KL_multiDropout', 
+           'SelfKD_KL_dropoutRand', 'SelfKD_KL_dp_rate',
+           'CS_KD_with_SelfKD_KL', 'SelfKD_KL_ver2']
 
 ################ BASE MODEL ################
 class BaseMethod(nn.Module):
@@ -58,6 +56,7 @@ class BaseMethod(nn.Module):
 
     def update_optimizer(self, results: Dict[str, Tensor]) -> None:
         loss = results['loss']
+
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -140,10 +139,11 @@ class DML(BaseMethod):
                                 prefix=f'Epoch[{epoch}] Batch')
         return meters, progress
 
-    def compute_kl_loss(self, out1: Tensor, out2: Tensor) -> Tensor:
-        pred1_log = F.log_softmax(out1/self.T, dim=1)
-        pred2 = F.softmax(out2/self.T, dim=1)
-        return self.criterion_kl(pred1_log, pred2)
+    def compute_kl_loss(self, pred: Tensor, target: Tensor) -> Tensor:
+        x_log = F.log_softmax(pred/self.T, dim=1)
+        y = F.softmax(target/self.T, dim=1)
+        
+        return self.criterion_kl(x_log, y)
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
         outputs_1, outputs_2 = self.backbone(x), self.backbone2(x)
@@ -155,16 +155,9 @@ class DML(BaseMethod):
 
         loss_ce = loss_ce1 + loss_ce2
         loss_kl = (self.T**2)*loss_kl1 + (self.T**2)*loss_kl2
-        loss_logit = loss_ce + loss_kl
+        loss = loss_ce + loss_kl
 
-        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
-
-    def update_optimizer(self, results: Dict[str, Tensor]) -> None:
-        loss_logit = results['loss_logit']
-
-        self.optimizer.zero_grad()
-        loss_logit.backward()
-        self.optimizer.step()
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
 
     def update_log(self, results: Dict[str, Tensor], 
                    meters: Dict[str, AverageMeter], 
@@ -206,13 +199,13 @@ class SelfKD_KL(DML):
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
         # forward
-        output_wo_dropout, feat = self.backbone(x, return_feat=True)
+        output_wo_dropout, feats = self.backbone(x, return_feat=True)
         
         # cross-entropy loss
         loss_ce = self.criterion_ce(output_wo_dropout, y)
         
-        # dropout
-        feats_dp = self.make_feats_dropout(feat)
+        # dropout only last feature
+        feats_dp = self.make_feats_dropout(feats[-1])
         output_dp1, output_dp2 = [self.make_output(feats_dp[j]) for j in range(2)]
         
         # KL Divergence
@@ -221,25 +214,9 @@ class SelfKD_KL(DML):
         loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
 
         # total loss
-        loss_logit = loss_ce + loss_kl
+        loss = loss_ce + loss_kl
 
-        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
-
-    def update_optimizer(self, results: Dict[str, Tensor]) -> None:
-        loss_logit = results['loss_logit']
-
-        self.optimizer.zero_grad()
-        loss_logit.backward()
-        self.optimizer.step()
-
-    def update_log(self, results: Dict[str, Tensor], 
-                   meters: Dict[str, AverageMeter], 
-                   size: int, end) -> Dict[str, AverageMeter]:
-        meters['losses'].update(results['loss_ce'].item(), size)
-        meters['kl_losses'].update(results['loss_kl'].item(), size)
-        meters['batch_time'].update(time.time() - end)
-
-        return meters
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
 
 class CS_KD(SelfKD_KL):
     def __init__(self, args, backbone: Module) -> None:
@@ -256,11 +233,34 @@ class CS_KD(SelfKD_KL):
             outputs_cls = self.backbone(x[batch_size//2:])
         loss_kl = (self.T**2)*self.compute_kl_loss(output, outputs_cls.detach())
 
-        loss_logit = loss_ce + loss_kl
+        loss = loss_ce + loss_kl
 
-        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
 
 ################################
+
+class SelfKD_KL_ver2(SelfKD_KL):
+    def __init__(self, args, backbone: Module) -> None:
+        super().__init__(args, backbone)
+
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
+        # forward
+        output_wo_dropout, feats = self.backbone(x, return_feat=True)
+        
+        # cross-entropy loss
+        loss_ce = self.criterion_ce(output_wo_dropout, y)
+        
+        # dropout only last feature
+        feats_dp = self.make_feats_dropout(feats[-1], num=1)
+        output_dp = self.make_output(feats_dp[0])
+        
+        # KL Divergence
+        loss_kl = (self.T**2)*self.compute_kl_loss(output_dp, output_wo_dropout.detach())
+
+        # total loss
+        loss = loss_ce + loss_kl
+
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
 
 class CS_KD_with_SelfKD_KL(CS_KD):
     def __init__(self, args, backbone: Module) -> None:
@@ -271,13 +271,13 @@ class CS_KD_with_SelfKD_KL(CS_KD):
         y_ = y[:batch_size//2]
 
         # forward
-        output_wo_dropout, feat = self.backbone(x[:batch_size//2], return_feat=True)
+        output_wo_dropout, feats = self.backbone(x[:batch_size//2], return_feat=True)
         
         # cross-entropy loss
         loss_ce = self.criterion_ce(output_wo_dropout, y_)
         
-        # dropout
-        feats_dp = self.make_feats_dropout(feat, num=1)
+        # dropout only last feature
+        feats_dp = self.make_feats_dropout(feats[-1], num=1)
         output_dp = self.make_output(feats_dp[0])
         with torch.no_grad():
             output_cls, feat_cls = self.backbone(x[batch_size//2:], return_feat=True)
@@ -314,179 +314,45 @@ class CS_KD_with_SelfKD_KL(CS_KD):
 class SelfKD_KL_dp_rate(SelfKD_KL):
     def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
-
-    def make_feats_dropout(self, x: Tensor) -> Tuple[Tensor]:
-        net = self.backbone
-        output, feat = net(x, return_feat=True)
+    
+    def make_feats_dropout(self, feat: Tensor, num: int = 2) -> List[Tensor]:
         rand_p = float(0.2*torch.rand(1) + 0.3)
-        feats_dropout = [F.dropout2d(feat, p=rand_p) for _ in range(2)]
+        feats_dropout = [F.dropout2d(feat, p=rand_p) for _ in range(num)]
 
-        return output, feats_dropout
+        return feats_dropout
 
 class SelfKD_KL_dropoutRand(SelfKD_KL):
     def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.dropout = nn.Dropout(p=self.P)
-
-    def make_feats_dropout(self, x: Tensor) -> Tuple[Tensor]:
-        net = self.backbone
-        output, feat = net(x, return_feat=True)
-        feats_dropout = [self.dropout(feat) for _ in range(2)]
-
-        return output, feats_dropout
-
-class SelfKD_KL_logit(SelfKD_KL):
-    def __init__(self, args, backbone: Module) -> None:
-        super().__init__(args, backbone)
-
-    def set_log(self, epoch: int, num_batchs: int) -> Tuple[Dict[str, AverageMeter], ProgressMeter]:
-        meters, _ = super().set_log(epoch, num_batchs)
-        meters['dropout_logit_losses'] = AverageMeter('Dropout_Logit_Loss', ':.4f')
-        
-        progress = ProgressMeter(num_batchs, meters=meters.values(),
-                                prefix=f'Epoch[{epoch}] Batch')
-        return meters, progress
-
-    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
-        output_wo_dropout, feats_dropout = self.make_feats_dropout(x)
-        outputs_1, outputs_2 = [self.make_output(feats_dropout[j]) for j in range(2)]
-        loss_ce = self.criterion_ce(output_wo_dropout, y)
-        loss_dropout_logit = self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y)
-
-        loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1)
-        loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
-
-        loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
-        loss_logit = loss_ce + loss_kl + 0.5*loss_dropout_logit
-
-        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit, 'loss_dropout_logit':loss_dropout_logit}
-
-    def update_log(self, results: Dict[str, Tensor], meters: Dict[str, AverageMeter], size: int, end) -> Dict[str, AverageMeter]:
-        meters['losses'].update(results['loss_ce'].item(), size)
-        meters['kl_losses'].update(results['loss_kl'].item(), size)
-        meters['dropout_logit_losses'].update(results['loss_dropout_logit'].item(), size)   # add
-        meters['batch_time'].update(time.time() - end)
-
-        return meters
-
-class SelfKD_KL_contrastive(SelfKD_KL):
-    def __init__(self, args, backbone: Module) -> None:
-        super().__init__(args, backbone)
-    
-    def set_log(self, epoch: int, num_batchs: int) -> Tuple[Dict[str, AverageMeter], ProgressMeter]:
-        meters, _ = super().set_log(epoch, num_batchs)
-        meters['contrastive_loss'] = AverageMeter('Contra_Loss', ':.4f')
-        
-        progress = ProgressMeter(num_batchs, meters=meters.values(),
-                                prefix=f'Epoch[{epoch}] Batch')
-        return meters, progress
-    # TODO
-    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
-        output_wo_dropout, feats_dropout = self.make_feats_dropout(x)
-        outputs_1, outputs_2 = [self.make_output(feats_dropout[j]) for j in range(2)]
-        loss_ce = self.criterion_ce(output_wo_dropout, y)
-        loss_dropout_logit = self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y)
-
-        loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1)
-        loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
-
-        loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
-        loss_logit = loss_ce + loss_kl + 0.5*loss_dropout_logit
-
-        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit, 'loss_contra':loss_dropout_logit}
-
-    def update_log(self, results: Dict[str, Tensor], meters: Dict[str, AverageMeter], size: int, end) -> Dict[str, AverageMeter]:
-        meters['losses'].update(results['loss_ce'].item(), size)
-        meters['kl_losses'].update(results['loss_kl'].item(), size)
-        meters['contrastive_loss'].update(results['loss_contra'].item(), size)   # add
-        meters['batch_time'].update(time.time() - end)
-
-        return meters
-
-class SelfKD_KL_once(SelfKD_KL):
-    def __init__(self, args, backbone):
-        super().__init__(args, backbone)
-
-    def calculate_loss(self, x, y):
-        output_wo_dropout, feats = self.make_feats_dropout(x)
-        outputs_1, outputs_2 = [self.make_output(feats[j]) for j in range(2)]
-        loss_ce = self.criterion_ce(output_wo_dropout, y)
-
-        loss_kl = (self.T**2)*self.compute_kl_loss(outputs_1, outputs_2)
-
-        loss_logit = loss_ce + loss_kl
-
-        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
-
-class SelfKD_KL_Delay(SelfKD_KL):
-    def __init__(self, args, backbone):
-        super().__init__(args, backbone)
-    
-    def calculate_loss_wo_dropout(self, x, y):
-        outputs = self.forward(x)
-        loss = self.criterion_ce(outputs, y)
-        loss_kl = torch.tensor(0, dtype=torch.float32)
-        if torch.cuda.is_available(): loss_kl = loss_kl.cuda()
-
-        return {'loss_ce':loss, 'loss_kl':loss_kl, 'loss_logit':loss}
-
-    def train_loop(self, dataloader, epoch, freq=10):
-        self.train()
-        meters, progress = self.set_log(epoch, len(dataloader))
-        end = time.time()
-        for i, (x, y) in enumerate(dataloader):
-            meters['data_time'].update(time.time() - end)
-            if torch.cuda.is_available():
-                x, y = x.cuda(), y.cuda()
-            
-            # calculate loss
-            if epoch > 20:
-                results = self.calculate_loss(x, y)
-            else:
-                results = self.calculate_loss_wo_dropout(x, y)
-
-            # back-propagation
-            self.update_optimizer(results)
-
-            # log
-            meters = self.update_log(results, meters, x.size(0), end)
-            end = time.time()
-
-            if (i%freq) == 0:
-                progress.display(i)
-
-        ## lr schedulder
-        self.lr_scheduler.step()
-        return [meter for meter in meters.values() if 'Loss' in meter.name]
-
 class SelfKD_KL_Multi(SelfKD_KL):
     def __init__(self, args, backbone):
         super().__init__(args, backbone)
-        self.num_multi = 2
+        self.num_multi = 3
 
-    def make_feats_dropout(self, x):
-        net = self.backbone
-        output, feat = net(x, return_feat=True)
-        feats_dropout = [F.dropout2d(feat, p=self.P) for _ in range(self.num_multi)]
-
-        return output, feats_dropout
-
-    def calculate_loss(self, x, y):
-        output_wo_dropout, feats = self.make_feats_dropout(x)
-        # feats = self.make_feats_with_multiple_dropout(x)
-        outputs = [self.make_output(feats[j]) for j in range(self.num_multi)]
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
+        # forward
+        output_wo_dropout, feats = self.backbone(x, return_feat=True)
+        
+        # cross-entropy loss
         loss_ce = self.criterion_ce(output_wo_dropout, y)
-        # loss_ce = 0.5*(self.criterion_ce(outputs_1, y) + self.criterion_ce(outputs_2, y))
+        
+        # dropout only last feature
+        feats_dp = self.make_feats_dropout(feats[-1], num=self.num_multi)
+        outputs_dp = [self.make_output(feats_dp[j]) for j in range(self.num_multi)]
 
+        # KL Divergence
         loss_kl = torch.tensor(0, dtype=torch.float32)
         if torch.cuda.is_available(): loss_kl = loss_kl.cuda()
         for j in range(self.num_multi):
             for k in range(self.num_multi):
-                loss_kl += self.compute_kl_loss(outputs[j], outputs[k])
+                loss_kl += self.compute_kl_loss(outputs_dp[j], outputs_dp[k])
         loss_kl *= (self.T**2)
-        loss_logit = loss_ce + loss_kl/self.num_multi
 
-        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
+        # total loss
+        loss = loss_ce + loss_kl/float(self.num_multi)
+
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
 
 class SelfKD_KL_ExclusiveDropout(SelfKD_KL):
     def __init__(self, args, backbone):
@@ -526,39 +392,6 @@ class SelfKD_KL_ExclusiveDropout(SelfKD_KL):
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
 
-class SelfKD_KL_likeCS(SelfKD_KL):
-    def __init__(self, args, backbone):
-        super().__init__(args, backbone)
-
-    def calculate_loss(self, x, y):
-        output_wo_dropout, feats = self.make_feats_dropout(x)
-        outputs_1, outputs_2 = [self.make_output(feats[j]) for j in range(2)]
-        loss_ce = self.criterion_ce(output_wo_dropout, y)
-
-        loss_kl = (self.T**2)*self.compute_kl_loss(outputs_1, outputs_2.detach())
-
-        loss_logit = loss_ce + loss_kl
-
-        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
-
-class SelfKD_KL_likeCS_twice(SelfKD_KL):
-    def __init__(self, args, backbone):
-        super().__init__(args, backbone)
-
-    def calculate_loss(self, x, y):
-        output_wo_dropout, feats = self.make_feats_dropout(x)
-        outputs_1, outputs_2 = [self.make_output(feats[j]) for j in range(2)]
-        loss_ce = self.criterion_ce(output_wo_dropout, y)
-
-        loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1.detach())
-        loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2.detach())
-
-        loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
-
-        loss_logit = loss_ce + loss_kl
-
-        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_logit':loss_logit}
-
 class SelfKD_KL_multiDropout(SelfKD_KL):
     def __init__(self, args, backbone):
         super().__init__(args, backbone)
@@ -585,20 +418,6 @@ class SelfKD_KL_multiDropout(SelfKD_KL):
         output = self.make_output(output)
 
         return output, feats_dropout
-
-class SelfKD_KL_layer3(SelfKD_KL):
-    def __init__(self, args, backbone):
-        super().__init__(args, backbone)
-        self.dropout = nn.Dropout2d(p=self.P)
-
-    def make_feats_dropout(self, x):
-        net = self.backbone
-
-        output, feat = net(x, return_feat=True)
-        feats_dropout = [F.dropout2d(feat[2], p=self.P) for _ in range(2)]
-        feats_dropout = [self.dropout(net.layer4(out_dp)) for out_dp in feats_dropout]
-
-        return output, feats_dropout        
 
 class AFD(BaseMethod):
     def __init__(self, args, backbone, backbone2):

@@ -51,7 +51,7 @@ def parser_arg():
 
     ## debug
     # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 777 \
-    #                                    --backbone resnet18 --method CS_KD_with_SelfKD_KL \
+    #                                    --backbone resnet18 --method SelfKD_KL \
     #                                    --batch_size 128'.split())
                                        
     ## real
