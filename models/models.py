@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import time
+import re
 from utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedulers
 
 __all__ = ['BaseMethod', 'DML', 'AFD', 'SelfKD_AFD',
@@ -325,10 +326,18 @@ class SelfKD_KL_dropoutRand(SelfKD_KL):
     def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.dropout = nn.Dropout(p=self.P)
+
 class SelfKD_KL_Multi(SelfKD_KL):
     def __init__(self, args, backbone):
         super().__init__(args, backbone)
-        self.num_multi = 3
+        ## args.exp_name = 'm3' -> num_multi = 3
+        p = re.compile('\d')
+        m = p.search(args.exp_name)
+        if m:
+            self.num_multi = int(m.group())
+        else:
+            self.num_multi = 3
+        print(f'The number of dropouts : {self.num_multi}')
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
         # forward
@@ -346,11 +355,13 @@ class SelfKD_KL_Multi(SelfKD_KL):
         if torch.cuda.is_available(): loss_kl = loss_kl.cuda()
         for j in range(self.num_multi):
             for k in range(self.num_multi):
+                if j == k:
+                    continue
                 loss_kl += self.compute_kl_loss(outputs_dp[j], outputs_dp[k])
-        loss_kl *= (self.T**2)
+        loss_kl *= (self.T**2)/float((self.num_multi**2-self.num_multi)/2)
 
         # total loss
-        loss = loss_ce + loss_kl/float(self.num_multi)
+        loss = loss_ce + loss_kl
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
 
