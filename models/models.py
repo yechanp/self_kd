@@ -114,24 +114,14 @@ class BaseMethod(nn.Module):
         # print(f'Acc {100*correct/total:.4f}')
         return 100*correct/total
 
-class DML(BaseMethod):
-    def __init__(self, args, backbone: Module, backbone2: Module) -> None:
-        super(BaseMethod, self).__init__()
-        self.args = args
+class SelfKD_KL(BaseMethod):
+    def __init__(self, args, backbone: Module) -> None:
+        super().__init__(args, backbone)
         self.T = args.t
-        self.backbone = backbone
-        self.backbone2 = backbone2
-        ## parameters
+        self.P = args.p
+        self.dropout = nn.Dropout2d(p=self.P)
         self.set_optimizer()
 
-    def set_optimizer(self) -> None:
-        self.criterion_ce = nn.CrossEntropyLoss()
-        self.criterion_kl = nn.KLDivLoss(reduction='batchmean')
-        optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
-        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
-        self.optimizer = MultipleOptimizer([optimizer])
-        self.lr_scheduler = MultipleSchedulers([lr_scheduler])
-    
     def set_log(self, epoch: int, num_batchs: int) -> Tuple[Dict[str, AverageMeter], ProgressMeter]:
         meters, _ = super().set_log(epoch, num_batchs)
         meters['kl_losses'] = AverageMeter('KL_Loss', ':.4f')
@@ -140,43 +130,16 @@ class DML(BaseMethod):
                                 prefix=f'Epoch[{epoch}] Batch')
         return meters, progress
 
+    def set_optimizer(self) -> None:
+        super().set_optimizer()
+        self.criterion_ce = nn.CrossEntropyLoss()
+        self.criterion_kl = nn.KLDivLoss(reduction='batchmean')
+
     def compute_kl_loss(self, pred: Tensor, target: Tensor) -> Tensor:
         x_log = F.log_softmax(pred/self.T, dim=1)
         y = F.softmax(target/self.T, dim=1)
         
         return self.criterion_kl(x_log, y)
-
-    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
-        outputs_1, outputs_2 = self.backbone(x), self.backbone2(x)
-        loss_ce1 = self.criterion_ce(outputs_1, y)
-        loss_ce2 = self.criterion_ce(outputs_2, y)
-
-        loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1)
-        loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
-
-        loss_ce = loss_ce1 + loss_ce2
-        loss_kl = (self.T**2)*loss_kl1 + (self.T**2)*loss_kl2
-        loss = loss_ce + loss_kl
-
-        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
-
-    def update_log(self, results: Dict[str, Tensor], 
-                   meters: Dict[str, AverageMeter], 
-                   size: int, end) -> Dict[str, AverageMeter]:
-        meters['losses'].update(results['loss_ce'].item(), size)
-        meters['kl_losses'].update(results['loss_kl'].item(), size)
-        meters['batch_time'].update(time.time() - end)
-
-        return meters
-
-class SelfKD_KL(DML):
-    def __init__(self, args, backbone: Module) -> None:
-        super(BaseMethod, self).__init__()
-        self.T = args.t
-        self.P = args.p
-        self.backbone = backbone
-        self.dropout = nn.Dropout2d(p=self.P)
-        self.set_optimizer()
 
     def make_output(self, feat: Tensor) -> Tensor:
         """
@@ -219,9 +182,19 @@ class SelfKD_KL(DML):
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
 
+    def update_log(self, results: Dict[str, Tensor], 
+                   meters: Dict[str, AverageMeter], 
+                   size: int, end) -> Dict[str, AverageMeter]:
+        meters['losses'].update(results['loss_ce'].item(), size)
+        meters['kl_losses'].update(results['loss_kl'].item(), size)
+        meters['batch_time'].update(time.time() - end)
+
+        return meters
+
 class CS_KD(SelfKD_KL):
     def __init__(self, args, backbone: Module) -> None:
-        super().__init__(args, backbone)
+        super(SelfKD_KL, self).__init__(args, backbone)
+        self.T = args.t
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
         batch_size = x.size(0)
@@ -234,6 +207,30 @@ class CS_KD(SelfKD_KL):
             outputs_cls = self.backbone(x[batch_size//2:])
         loss_kl = (self.T**2)*self.compute_kl_loss(output, outputs_cls.detach())
 
+        loss = loss_ce + loss_kl
+
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
+
+class DML(SelfKD_KL):
+    def __init__(self, args, backbone: Module, backbone2: Module) -> None:
+        super(BaseMethod, self).__init__()
+        self.args = args
+        self.T = args.t
+        self.backbone = backbone
+        self.backbone2 = backbone2
+        ## parameters
+        self.set_optimizer()
+
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
+        outputs_1, outputs_2 = self.backbone(x), self.backbone2(x)
+        loss_ce1 = self.criterion_ce(outputs_1, y)
+        loss_ce2 = self.criterion_ce(outputs_2, y)
+
+        loss_kl1 = self.compute_kl_loss(outputs_2, outputs_1)
+        loss_kl2 = self.compute_kl_loss(outputs_1, outputs_2)
+
+        loss_ce = loss_ce1 + loss_ce2
+        loss_kl = (self.T**2)*loss_kl1 + (self.T**2)*loss_kl2
         loss = loss_ce + loss_kl
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
