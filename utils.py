@@ -127,6 +127,7 @@ def add_args(args):
     if 'Self' in args.method: args.exp_name += f'_p{args.p}'
     if 'KD'   in args.method: args.exp_name += f'_t{args.t}'
     if args.backbone != 'resnet18': args.exp_name += f'_{args.backbone}'
+    if args.alpha: args.exp_name += f'_a{args.alpha}'
     if args.seed: args.exp_name += f'_seed{args.seed}'
     args.exp_name += f'_{current_time()}'
     ## dir

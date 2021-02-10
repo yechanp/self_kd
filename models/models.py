@@ -16,7 +16,7 @@ __all__ = ['BaseMethod', 'DML', 'AFD', 'SelfKD_AFD',
            'SelfKD_KL', 'SelfKD_KL_ExclusiveDropout', 'SelfKD_KL_Multi',
            'CS_KD', 'SelfKD_KL_multiDropout', 
            'SelfKD_KL_dropoutRand', 'SelfKD_KL_dp_rate',
-           'CS_KD_with_SelfKD_KL', 'SelfKD_KL_ver2']
+           'CS_KD_with_SelfKD_KL']
 
 ################ BASE MODEL ################
 class BaseMethod(nn.Module):
@@ -173,8 +173,8 @@ class SelfKD_KL(BaseMethod):
         output_dp1, output_dp2 = [self.make_output(feats_dp[j]) for j in range(2)]
         
         # KL Divergence
-        loss_kl1 = self.compute_kl_loss(output_dp2, output_dp1)
-        loss_kl2 = self.compute_kl_loss(output_dp1, output_dp2)
+        loss_kl1 = self.compute_kl_loss(output_dp2, output_dp1.detach())
+        loss_kl2 = self.compute_kl_loss(output_dp1, output_dp2.detach())
         loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
 
         # total loss
@@ -236,29 +236,6 @@ class DML(SelfKD_KL):
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
 
 ################################
-
-class SelfKD_KL_ver2(SelfKD_KL):
-    def __init__(self, args, backbone: Module) -> None:
-        super().__init__(args, backbone)
-
-    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
-        # forward
-        output_wo_dropout, feats = self.backbone(x, return_feat=True)
-        
-        # cross-entropy loss
-        loss_ce = self.criterion_ce(output_wo_dropout, y)
-        
-        # dropout only last feature
-        feats_dp = self.make_feats_dropout(feats[-1], num=1)
-        output_dp = self.make_output(feats_dp[0])
-        
-        # KL Divergence
-        loss_kl = (self.T**2)*self.compute_kl_loss(output_dp, output_wo_dropout.detach())
-
-        # total loss
-        loss = loss_ce + loss_kl
-
-        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
 
 class CS_KD_with_SelfKD_KL(CS_KD):
     def __init__(self, args, backbone: Module) -> None:
@@ -618,6 +595,19 @@ class SelfKD_AFD(AFD):
         meters['batch_time'].update(time.time() - end)
 
         return meters
+
+def method_use_alpha(method):
+    class Method_Alpha(method):
+        def __init__(self, args, backbone: Module) -> None:
+            super().__init__(args, backbone)
+            self.alpha = args.alpha
+
+        def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
+            losses = super().calculate_loss(x, y)
+            losses['loss'] = self.alpha*losses['loss_ce'] + (1-self.alpha)*losses['loss_kl']
+
+            return losses
+    return Method_Alpha
 
 """
 def kl_loss_compute(logits1, logits2):
