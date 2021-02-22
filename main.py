@@ -17,9 +17,9 @@ from torch.utils.tensorboard import SummaryWriter
 # custom packages
 from dataset import dataset_cifar
 from dataset_cs_kd import load_dataset
-from utils import cal_num_parameters, add_args, do_seed, AverageMeter, ProgressMeter, Logger
+from utils import cal_num_parameters, add_args, do_seed, log_optim, AverageMeter, ProgressMeter, Logger
 from models import models, resnet
-from models.models import method_use_alpha
+from models.models import method_use_alpha, method_beta_scheduling, method_eta_CosAnealing
 
 METHOD_NAMES = [name for name in models.__all__
                 if not name.startswith('__') and callable(models.__dict__[name])]
@@ -48,7 +48,9 @@ def parser_arg():
     parser.add_argument('--batch_size', type=int, default=128, metavar='N', help="batch size (default: 128)")
     parser.add_argument('-t', type=float, default=3.0, help="temperature (default: 3.0)")
     parser.add_argument('-p', type=float, default=0.5, help="the probability of dropout (default: 0.5)")
-    parser.add_argument('-a', '--alpha', type=float, default=0.0, help="the balance weight between losses (default: 0.0)")
+    parser.add_argument('-a', '--alpha', type=float, default=0.0, help="the balanced weight between losses (default: 0.0)")
+    parser.add_argument('--beta', type=float, default=0.0, help="the weight for KD loss (default: 0.0)")
+    parser.add_argument('--eta', type=int, default=0, help="T_max value of Cosine Anealing weight for KD loss (default: 0)")
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
 
     ## debug
@@ -95,10 +97,14 @@ if __name__ == "__main__":
     ## construct the model
     backbone = resnet.__dict__[args.backbone](num_classes=100)
     if 'Base' in args.method or 'KD' in args.method:
-        if not args.alpha:
-            model = models.__dict__[args.method](args, backbone)
-        else:
+        if args.alpha:
             model = method_use_alpha(models.__dict__[args.method])(args, backbone)
+        elif args.beta:
+            model = method_beta_scheduling(models.__dict__[args.method])(args, backbone)
+        elif args.eta:
+            model = method_eta_CosAnealing(models.__dict__[args.method])(args, backbone)
+        else:
+            model = models.__dict__[args.method](args, backbone)
     elif args.method in ['AFD', 'DML']:
         backbone2 = resnet.__dict__[args.backbone](num_classes=100)
         model = models.__dict__[args.method](args, backbone, backbone2)
@@ -125,6 +131,7 @@ if __name__ == "__main__":
 
     ############### Training ###############
     ## log
+    log_optim(model.optimizer, model.lr_scheduler, logger)
     log_list = [meter for meter in model.set_log(0, 0)[0].values() if not meter.name == 'Data']
     log_list.append(AverageMeter('Test_Acc', ':.4f'))
     progress = ProgressMeter(args.epochs, meters=log_list, prefix=f'EPOCH')

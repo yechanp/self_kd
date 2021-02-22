@@ -5,6 +5,7 @@ from datetime import datetime
 import random
 import torch
 from torch.optim.optimizer import Optimizer
+from torch.optim.lr_scheduler import MultiStepLR
 
 def current_time(easy=False):
     """
@@ -114,12 +115,18 @@ class MultipleOptimizer():
             op.load_state_dict(st)
 
 class MultipleSchedulers():
-    def __init__(self, schs):
+    def __init__(self, schs: List[MultiStepLR]):
         self.schedulers = schs
 
     def step(self):
         for sch in self.schedulers:
             sch.step()
+
+def log_optim(optimizers: MultipleOptimizer, schedulers: MultipleSchedulers, logger: Logger) -> None:
+    logger.log(optimizers.optimizers)
+    for sche in schedulers.schedulers:    
+        logger.log("milestones : " + str(dict(sche.milestones)))
+        logger.log("gamma : " + str(sche.gamma))
 
 def add_args(args):
     ## experiment name
@@ -127,7 +134,9 @@ def add_args(args):
     if 'Self' in args.method: args.exp_name += f'_p{args.p}'
     if 'KD'   in args.method: args.exp_name += f'_t{args.t}'
     if args.backbone != 'resnet18': args.exp_name += f'_{args.backbone}'
-    if args.alpha: args.exp_name += f'_a{args.alpha}'
+    if args.alpha: args.exp_name += f'_alpha{args.alpha}'
+    if args.beta: args.exp_name += f'_beta{args.beta}'
+    if args.eta: args.exp_name += f'_CosAnealT{args.eta}'
     if args.seed: args.exp_name += f'_seed{args.seed}'
     args.exp_name += f'_{current_time()}'
     ## dir
@@ -137,7 +146,6 @@ def add_args(args):
     os.makedirs(args.tb_folder, exist_ok=True)
     ## logfile
     args.logfile = os.path.join(args.save_folder, 'log.txt')
-    
     
     return args
 

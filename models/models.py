@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import time
 import re
+import math
 from utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedulers
 
 __all__ = ['BaseMethod', 'DML', 'AFD', 'SelfKD_AFD',
@@ -377,7 +378,6 @@ class SelfKD_KL_DropCE(SelfKD_KL):
         loss = loss_ce + loss_kl + loss_dpout
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_dpout':loss_dpout, 'loss':loss}
-        
 
 class CS_KD_with_SelfKD_KL(CS_KD):
     def __init__(self, args, backbone: Module) -> None:
@@ -517,7 +517,6 @@ class SelfKD_KL_ExclusiveDropout(SelfKD_KL):
 class SelfKD_KL_multiDropout(SelfKD_KL):
     def __init__(self, args, backbone):
         super().__init__(args, backbone)
-        self.dropout = nn.Dropout2d(p=self.P)
 
     def make_feats_dropout(self, x):
         net = self.backbone
@@ -744,7 +743,55 @@ def method_use_alpha(method):
             losses['loss'] = self.alpha*losses['loss_ce'] + (1-self.alpha)*losses['loss_kl']
 
             return losses
+
     return Method_Alpha
+
+def method_beta_scheduling(method):
+    class Method_Beta(method):
+        def __init__(self, args, backbone: Module) -> None:
+            super().__init__(args, backbone)
+            self.beta = args.beta
+
+        def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
+            losses = super().calculate_loss(x, y)
+            losses['loss'] = losses['loss_ce'] + self.beta*losses['loss_kl']
+
+            return losses
+
+        def train_loop(self, dataloader, epoch: int, freq: int = 10) -> Dict[str, AverageMeter]:
+            _return = super().train_loop(dataloader, epoch, freq)
+            if (epoch % 10) == 0:
+                self.beta *= self.beta
+
+            return _return
+
+    return Method_Beta
+
+def method_eta_CosAnealing(method):
+    class Method_Eta(method):
+        def __init__(self, args, backbone: Module) -> None:
+            super().__init__(args, backbone)
+            self.eta = 1.
+            self.eta_min = 0.
+            self.eta_max = 1.
+            self.t_curr = 1.
+            self.t_max = float(args.eta)
+
+        def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
+            losses = super().calculate_loss(x, y)
+            losses['loss'] = losses['loss_ce'] + self.eta*losses['loss_kl']
+
+            return losses
+
+        def train_loop(self, dataloader, epoch: int, freq: int = 10) -> Dict[str, AverageMeter]:
+            self.eta = self.eta_min + 0.5*(self.eta_max - self.eta_min)*(1.0 + math.cos(math.pi*(self.t_curr/self.t_max)))
+            self.t_curr += 1.
+            if self.t_curr > self.t_max: self.t_curr = 1.
+            _return = super().train_loop(dataloader, epoch, freq)
+
+            return _return
+
+    return Method_Eta
 
 """
 def kl_loss_compute(logits1, logits2):
