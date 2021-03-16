@@ -17,12 +17,12 @@ from torch.utils.tensorboard import SummaryWriter
 # custom packages
 from dataset import dataset_cifar
 from dataset_cs_kd import load_dataset
-from utils import cal_num_parameters, add_args, do_seed, log_optim, AverageMeter, ProgressMeter, Logger
-from models import models, resnet
-from models.models import method_use_alpha, method_beta_scheduling, method_eta_CosAnealing
+from utils import cal_num_parameters, set_args, do_seed, log_optim, AverageMeter, ProgressMeter, Logger
+from models import methods, resnet
+from models.methods import method_use_alpha, method_beta_scheduling, method_eta_CosAnealing
 
-METHOD_NAMES = [name for name in models.__all__
-                if not name.startswith('__') and callable(models.__dict__[name])]
+METHOD_NAMES = [name for name in methods.__all__
+                if not name.startswith('__') and callable(methods.__dict__[name])]
 BACKBONE_NAMES = sorted(name for name in resnet.__all__
                         if name.islower() and not name.startswith("__")
                         and callable(resnet.__dict__[name]))
@@ -61,7 +61,7 @@ def parser_arg():
     ## real
     args, _ = parser.parse_known_args()
 
-    return add_args(args)
+    return set_args(args)
 
 if __name__ == "__main__":
         
@@ -85,9 +85,9 @@ if __name__ == "__main__":
     if 'CS_KD' not in args.method:
         train_dataset, test_dataset = dataset_cifar('cifar100', aug=args.aug)
         trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                    shuffle=True, num_workers=1)
+                                                  shuffle=True, num_workers=1)
         testloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size*2,
-                                                shuffle=False, num_workers=1)
+                                                 shuffle=False, num_workers=1)
     else:
         trainloader, testloader = load_dataset('cifar100', 'dataset', 'pair', batch_size=args.batch_size)
         logger.log('Dataset for Class-wise Self KD')
@@ -98,16 +98,16 @@ if __name__ == "__main__":
     backbone = resnet.__dict__[args.backbone](num_classes=100)
     if 'Base' in args.method or 'KD' in args.method:
         if args.alpha:
-            model = method_use_alpha(models.__dict__[args.method])(args, backbone)
+            model = method_use_alpha(methods.__dict__[args.method])(args, backbone)
         elif args.beta:
-            model = method_beta_scheduling(models.__dict__[args.method])(args, backbone)
+            model = method_beta_scheduling(methods.__dict__[args.method])(args, backbone)
         elif args.eta:
-            model = method_eta_CosAnealing(models.__dict__[args.method])(args, backbone)
+            model = method_eta_CosAnealing(methods.__dict__[args.method])(args, backbone)
         else:
-            model = models.__dict__[args.method](args, backbone)
+            model = methods.__dict__[args.method](args, backbone)
     elif args.method in ['AFD', 'DML']:
         backbone2 = resnet.__dict__[args.backbone](num_classes=100)
-        model = models.__dict__[args.method](args, backbone, backbone2)
+        model = methods.__dict__[args.method](args, backbone, backbone2)
     else:
         logger.log(f'{args.method} is not available')
         raise NotImplementedError()

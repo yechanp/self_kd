@@ -1,8 +1,9 @@
-import os
 from typing import List
+import os
+import random
+import shutil
 import numpy as np
 from datetime import datetime
-import random
 import torch
 from torch.optim.optimizer import Optimizer
 from torch.optim.lr_scheduler import MultiStepLR
@@ -128,7 +129,7 @@ def log_optim(optimizers: MultipleOptimizer, schedulers: MultipleSchedulers, log
         logger.log("milestones : " + str(dict(sche.milestones)))
         logger.log("gamma : " + str(sche.gamma))
 
-def add_args(args):
+def set_args(args):
     ## experiment name
     args.exp_name = f'{args.method}_{args.exp_name}'
     if 'Self' in args.method: args.exp_name += f'_p{args.p}'
@@ -138,10 +139,19 @@ def add_args(args):
     if args.beta: args.exp_name += f'_beta{args.beta}'
     if args.eta: args.exp_name += f'_CosAnealT{args.eta}'
     if args.seed: args.exp_name += f'_seed{args.seed}'
-    args.exp_name += f'_{current_time()}'
-    ## dir
+    ## directory
     args.save_folder = os.path.join('saved_models', args.exp_name)
     args.tb_folder = os.path.join('tb_results', args.exp_name)
+    if os.path.exists(args.save_folder) or os.path.exists(args.tb_folder):
+        isdelete = input("delete exist exp dir (y/n): ")
+        if isdelete == "y":
+            if os.path.exists(args.save_folder): shutil.rmtree(args.save_folder) 
+            if os.path.exists(args.tb_folder):   shutil.rmtree(args.tb_folder) 
+        elif isdelete == "n":
+            raise FileExistsError
+        else:
+            raise FileExistsError
+
     os.makedirs(args.save_folder, exist_ok=True)
     os.makedirs(args.tb_folder, exist_ok=True)
     ## logfile
