@@ -1,6 +1,7 @@
-import torch
+import random
 import torchvision
 import torchvision.transforms as transforms
+from torch.utils.data import Sampler
 
 DATAPATH = 'dataset/'
 
@@ -37,3 +38,19 @@ def dataset_cifar(mode, root=DATAPATH, aug=False):
         raise NotImplementedError
 
     return trainset, testset
+
+class DDGSD_Sampler(Sampler):
+    def __init__(self, dataset, batch_size: int) -> None:
+        self.dataset = dataset
+        self.batch_size = batch_size
+    
+    def __iter__(self):
+        indices = list(range(len(self.dataset)))
+        random.shuffle(indices)
+        for k in range(len(self)):
+            offset = k*self.batch_size
+            batch_indices = indices[offset:offset+self.batch_size]
+            yield batch_indices + batch_indices
+
+    def __len__(self) -> int:
+        return (len(self.dataset) + self.batch_size - 1) // self.batch_size

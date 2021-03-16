@@ -12,10 +12,11 @@ import os
 import time
 import argparse
 import torch
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 # custom packages
-from dataset import dataset_cifar
+from dataset import dataset_cifar, DDGSD_Sampler
 from dataset_cs_kd import load_dataset
 from utils import cal_num_parameters, set_args, do_seed, log_optim, AverageMeter, ProgressMeter, Logger
 from models import methods, resnet
@@ -82,15 +83,23 @@ if __name__ == "__main__":
         logger.log(f'The fixed seed number is {args.seed}')
 
     ############### Load Data ###############
-    if 'CS_KD' not in args.method:
-        train_dataset, test_dataset = dataset_cifar('cifar100', aug=args.aug)
-        trainloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                                  shuffle=True, num_workers=1)
-        testloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size*2,
-                                                 shuffle=False, num_workers=1)
-    else:
+    if 'CS_KD' in args.method:
         trainloader, testloader = load_dataset('cifar100', 'dataset', 'pair', batch_size=args.batch_size)
         logger.log('Dataset for Class-wise Self KD')
+        
+    elif 'DDGKD' in args.method:
+        train_dataset, test_dataset = dataset_cifar('cifar100', aug=args.aug)
+        sampler = DDGSD_Sampler(train_dataset, args.batch_size) 
+        trainloader = DataLoader(train_dataset, num_workers=1, batch_sampler=sampler)
+        testloader = DataLoader(test_dataset, batch_size=args.batch_size*2,
+                                shuffle=False, num_workers=1)
+        logger.log('Dataset for Data Distortion Guided Self Distillation')
+    else:
+        train_dataset, test_dataset = dataset_cifar('cifar100', aug=args.aug)
+        trainloader = DataLoader(train_dataset, batch_size=args.batch_size,
+                                 shuffle=True, num_workers=1)
+        testloader = DataLoader(test_dataset, batch_size=args.batch_size*2,
+                                shuffle=False, num_workers=1)
     
     ############### Define Model ###############
     print("init neural networks")
