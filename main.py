@@ -16,8 +16,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 # custom packages
-from dataset import dataset_cifar, DDGSD_Sampler
-from dataset_cs_kd import load_dataset
+from dataset import make_loader
 from utils import cal_num_parameters, set_args, do_seed, log_optim, AverageMeter, ProgressMeter, Logger
 from models import methods, resnet
 from models.methods import method_use_alpha, method_beta_scheduling, method_eta_CosAnealing
@@ -34,9 +33,11 @@ def parser_arg():
     ## 
     parser.add_argument('--exp_name', type=str, default='', help="the name of experiment")
     parser.add_argument('-g', '--gpu', type=int, dest='gpu', metavar='N', default=0, help="gpu")
-    parser.add_argument('--num_threads', type=int, default=1, metavar='N', help="the number of threads (default: 1)")
+    parser.add_argument('--num_threads', type=int, default=4, metavar='N', help="the number of threads (default: 1)")
     parser.add_argument('--seed', type=int, default=0, metavar='N', help='seed number. if 0, do not fix seed (default: 0)')
     parser.add_argument('--resume', type=str, default='', help='resume path')
+    parser.add_argument('--dataset', type=str, default='CIFAR100', help='dataset', 
+                        choices=['CIFAR10', 'CIFAR100', 'CUB200'])
 
     ## hyper-parameters
     parser.add_argument('--method', type=str, default='BaseMethod', metavar='METHOD', choices=METHOD_NAMES, help='model_names: '+
@@ -56,8 +57,8 @@ def parser_arg():
 
     ## debug
     # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 777 \
-    #                                    --backbone resnet18 --method SelfKD_KL --alpha 0.9\
-    #                                    --batch_size 128'.split())
+    #                                    --backbone resnet18_cifar --method SelfKD_KL --dataset CIFAR100 \
+    #                                    --batch_size 128 --num_threads 4'.split())
                                        
     ## real
     args, _ = parser.parse_known_args()
@@ -84,28 +85,24 @@ if __name__ == "__main__":
 
     ############### Load Data ###############
     if 'CS_KD' in args.method:
-        trainloader, testloader = load_dataset('cifar100', 'dataset', 'pair', batch_size=args.batch_size)
+        trainloader, testloader = make_loader(args.dataset, batch_size=args.batch_size, aug=args.aug, 
+                                              sampler='CS_KD', num_workers=args.num_threads)
         logger.log('Dataset for Class-wise Self KD')
-        
-    elif 'DDGKD' in args.method:
-        train_dataset, test_dataset = dataset_cifar('cifar100', aug=args.aug)
-        sampler = DDGSD_Sampler(train_dataset, args.batch_size) 
-        trainloader = DataLoader(train_dataset, num_workers=1, batch_sampler=sampler)
-        testloader = DataLoader(test_dataset, batch_size=args.batch_size*2,
-                                shuffle=False, num_workers=1)
+    elif 'DDGSD' in args.method:
+        trainloader, testloader = make_loader(args.dataset, batch_size=args.batch_size, aug=args.aug, 
+                                              sampler='DDGSD', num_workers=args.num_threads)
         logger.log('Dataset for Data Distortion Guided Self Distillation')
     else:
-        train_dataset, test_dataset = dataset_cifar('cifar100', aug=args.aug)
-        trainloader = DataLoader(train_dataset, batch_size=args.batch_size,
-                                 shuffle=True, num_workers=1)
-        testloader = DataLoader(test_dataset, batch_size=args.batch_size*2,
-                                shuffle=False, num_workers=1)
-    
+        trainloader, testloader = make_loader(args.dataset, batch_size=args.batch_size, aug=args.aug,
+                                              num_workers=args.num_threads)
+        logger.log('Dataset for the method without sampler')
+
     ############### Define Model ###############
     print("init neural networks")
     ## construct the model
-    backbone = resnet.__dict__[args.backbone](num_classes=100)
-    if 'Base' in args.method or 'KD' in args.method:
+    num_classes = {'CIFAR10': 10, 'CIFAR100':100, 'CUB200':200}
+    backbone = resnet.__dict__[args.backbone](num_classes=num_classes[args.dataset])
+    if any(c in args.method for c in ['Base', 'KD', 'SD']):
         if args.alpha:
             model = method_use_alpha(methods.__dict__[args.method])(args, backbone)
         elif args.beta:
@@ -114,12 +111,13 @@ if __name__ == "__main__":
             model = method_eta_CosAnealing(methods.__dict__[args.method])(args, backbone)
         else:
             model = methods.__dict__[args.method](args, backbone)
-    elif args.method in ['AFD', 'DML']:
-        backbone2 = resnet.__dict__[args.backbone](num_classes=100)
+    elif any(c in args.method for c in ['AFD', 'DML']):
+        backbone2 = resnet.__dict__[args.backbone](num_classes=num_classes[args.dataset])
         model = methods.__dict__[args.method](args, backbone, backbone2)
     else:
         logger.log(f'{args.method} is not available')
         raise NotImplementedError()
+
     if torch.cuda.is_available():
         model.cuda()
 

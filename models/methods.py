@@ -18,7 +18,7 @@ __all__ = ['BaseMethod', 'DML', 'AFD', 'SelfKD_AFD',
            'CS_KD', 'SelfKD_KL_multiDropout', 
            'SelfKD_KL_dp_rate', 'CS_KD_with_SelfKD_KL', 
            'SelfKD_KL_RandDrop', 'SelfKD_KL_DropCE', 'SelfKD_KL_RandDrop_Latter',
-           'DDGKD']
+           'DDGSD']
 
 ################ BASE MODEL ################
 class BaseMethod(nn.Module):
@@ -184,8 +184,8 @@ class SelfKD_KL(BaseMethod):
         output_dp1, output_dp2 = [self.make_output(feats_dp[j]) for j in range(2)]
         
         # KL Divergence
-        loss_kl1 = self.compute_kl_loss(output_dp2, output_dp1.detach())
-        loss_kl2 = self.compute_kl_loss(output_dp1, output_dp2.detach())
+        loss_kl1 = self.compute_kl_loss(output_dp1, output_dp2.detach())
+        loss_kl2 = self.compute_kl_loss(output_dp2, output_dp1.detach())
         loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
 
         # total loss
@@ -237,7 +237,7 @@ class DML(SelfKD_KL):
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss':loss}
 
-class DDGKD(SelfKD_KL):
+class DDGSD(SelfKD_KL):
     def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
     
@@ -282,9 +282,9 @@ class DDGKD(SelfKD_KL):
         # KL Divergence
         loss_kl1 = self.compute_kl_loss(output_1, output_2.detach())
         loss_kl2 = self.compute_kl_loss(output_2, output_1.detach())
-        loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
+        loss_kl = (loss_kl1 + loss_kl2)
 
-        # MMD
+        # MMD loss
         loss_mmd = 0.005 * self.criterion_mmd(feat_1, feat_2)
 
         # total loss

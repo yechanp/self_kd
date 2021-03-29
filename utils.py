@@ -131,18 +131,19 @@ def log_optim(optimizers: MultipleOptimizer, schedulers: MultipleSchedulers, log
 
 def set_args(args):
     ## experiment name
-    args.exp_name = f'{args.method}_{args.exp_name}'
+    args.exp_name = f'{args.dataset}_{args.method}_{args.backbone}_{args.exp_name}'
     if 'Self' in args.method: args.exp_name += f'_p{args.p}'
-    if 'KD'   in args.method: args.exp_name += f'_t{args.t}'
-    if args.backbone != 'resnet18': args.exp_name += f'_{args.backbone}'
+    if any(c in args.method for c in ['KD', 'SD']): args.exp_name += f'_t{args.t}'
     if args.alpha: args.exp_name += f'_alpha{args.alpha}'
     if args.beta: args.exp_name += f'_beta{args.beta}'
     if args.eta: args.exp_name += f'_CosAnealT{args.eta}'
+    args.exp_name += f'_B{args.batch_size}'
     if args.seed: args.exp_name += f'_seed{args.seed}'
     ## directory
     args.save_folder = os.path.join('saved_models', args.exp_name)
     args.tb_folder = os.path.join('tb_results', args.exp_name)
     if os.path.exists(args.save_folder) or os.path.exists(args.tb_folder):
+        print(f"Current Experiment is : {args.exp_name}")
         isdelete = input("delete exist exp dir (y/n): ")
         if isdelete == "y":
             if os.path.exists(args.save_folder): shutil.rmtree(args.save_folder) 
