@@ -18,7 +18,7 @@ __all__ = ['BaseMethod', 'DML', 'AFD', 'SelfKD_AFD',
            'CS_KD', 'SelfKD_KL_multiDropout', 
            'SelfKD_KL_dp_rate', 'CS_KD_with_SelfKD_KL', 
            'SelfKD_KL_RandDrop', 'SelfKD_KL_DropCE', 'SelfKD_KL_RandDrop_Latter',
-           'DDGSD']
+           'DDGSD', 'DDGSD_SelfKD']
 
 ################ BASE MODEL ################
 class BaseMethod(nn.Module):
@@ -293,6 +293,46 @@ class DDGSD(SelfKD_KL):
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_mmd':loss_mmd, 'loss':loss}
 
 ################################
+
+class DDGSD_SelfKD(DDGSD):
+    def __init__(self, args, backbone: Module) -> None:
+        super().__init__(args, backbone)
+
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
+        batch_size = x.shape[0] // 2
+        assert (y[:batch_size] == y[batch_size:]).all(), "Wrong DataLoader"
+        y = y[:batch_size]
+        ## forward
+        output, feats = self.backbone(x, return_feat=True)
+        output_1, output_2 = output[:batch_size], output[batch_size:]
+
+        # cross-entropy loss
+        loss_ce1 = self.criterion_ce(output_1, y)
+        loss_ce2 = self.criterion_ce(output_2, y)
+        loss_ce = loss_ce1 + loss_ce2
+        
+        # dropout only last feature
+        feats_dp = self.make_feats_dropout(feats[-1], num=1)
+        output_dp = self.make_output(feats_dp[0])
+        output_dp1, output_dp2 = output_dp[:batch_size], output_dp[batch_size:]
+        
+        # KL Divergence
+        loss_kl1 = self.compute_kl_loss(output_dp1, output_dp2.detach())
+        loss_kl2 = self.compute_kl_loss(output_dp2, output_dp1.detach())
+        loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
+
+        # global feature
+        feats = F.adaptive_avg_pool2d(feats[-1], (1, 1)).reshape(batch_size*2, -1)
+        # mean vector of global feature
+        feat_1, feat_2 = feats[:batch_size].mean(dim=0), feats[batch_size:].mean(dim=0)
+        
+        # MMD loss
+        loss_mmd = 0.005 * self.criterion_mmd(feat_1, feat_2)
+
+        # total loss
+        loss = loss_ce + loss_kl + loss_mmd
+
+        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_mmd':loss_mmd, 'loss':loss}
 
 class SelfKD_KL_RandDrop(SelfKD_KL):
     def __init__(self, args, backbone: Module) -> None:
