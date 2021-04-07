@@ -54,6 +54,8 @@ def parser_arg():
     parser.add_argument('--beta', type=float, default=0.0, help="the weight for KD loss (default: 0.0)")
     parser.add_argument('--eta', type=int, default=0, help="T_max value of Cosine Anealing weight for KD loss (default: 0)")
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
+    parser.add_argument('--lambda_byot', type=float, default=0., help="hyperparams of byot loss")
+
 
     ## debug
     # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 777 \
@@ -114,6 +116,9 @@ if __name__ == "__main__":
     elif any(c in args.method for c in ['AFD', 'DML']):
         backbone2 = resnet.__dict__[args.backbone](num_classes=num_classes[args.dataset])
         model = methods.__dict__[args.method](args, backbone, backbone2)
+
+    elif any(c in args.method for c in ['BYOT']):
+        model = methods.__dict__[args.method](args, backbone)
     else:
         logger.log(f'{args.method} is not available')
         raise NotImplementedError()
