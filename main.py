@@ -1,16 +1,17 @@
 """
-2020-12-30
+2021-04-08
 Hyoje Lee
 
-python main.py --method BaseMethod --backbone resnet34 --seed 1
-python main.py --method SelfKD_KL  --backbone resnet34 --seed 1 -p 0.5
-python main.py --method CS_KD      --backbone resnet34 --seed 1
+python main.py --method BaseMethod      --backbone resnet18_cifar --seed 41
+python main.py --method CS_KD           --backbone resnet18_cifar --seed 41
+python main.py --method CS_KD_Dropout   --backbone resnet18_cifar --seed 41
 
 """
 # imports base packages
 import os
 import time
 import argparse
+from typing import Dict, Tuple
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -19,13 +20,49 @@ from torch.utils.tensorboard import SummaryWriter
 from dataset import make_loader
 from utils import cal_num_parameters, set_args, do_seed, log_optim, AverageMeter, ProgressMeter, Logger
 from models import methods, resnet
-from models.methods import method_use_alpha, method_beta_scheduling, method_eta_CosAnealing
+from models.methods import BaseMethod
 
 METHOD_NAMES = [name for name in methods.__all__
                 if not name.startswith('__') and callable(methods.__dict__[name])]
 BACKBONE_NAMES = sorted(name for name in resnet.__all__
                         if name.islower() and not name.startswith("__")
                         and callable(resnet.__dict__[name]))
+
+
+def set_log(epochs: int, log_names=None) -> Tuple[Dict[str, AverageMeter], ProgressMeter]:
+    meters = {}
+    meters['epoch_time'] = AverageMeter('Time', ':.3f')
+    meters['test_acc'] = AverageMeter('Test_Acc', ':.4f')
+    if log_names is not None:
+        for key in log_names:
+            if key in ['data_time', 'batch_time']: continue
+            meters[key] = AverageMeter(key, ':.4f')
+
+    progress = ProgressMeter(epochs, 
+                             meters.values(),
+                             prefix=f'EPOCH')
+    return meters, progress
+
+def update_log(loss_meters: Dict[str, AverageMeter], 
+               meters: Dict[str, AverageMeter], 
+               progress: ProgressMeter, 
+               writer: SummaryWriter) -> ProgressMeter:
+    if len(meters.keys()) != (len(loss_meters.keys())+2):
+        meters, progress = set_log(progress.num_batchs, log_names=loss_meters.keys())
+    meters['epoch_time'].update(time.time() - end)
+    meters['test_acc'].update(eval_acc)
+    for key in loss_meters.keys():
+        loss = loss_meters[key]
+        meters[key].update(loss.avg)
+        writer.add_scalar(loss.name, loss.avg, epoch)
+    lr_name = 'lr'
+    for i, opt in enumerate(model.optimizer.optimizers):
+        writer.add_scalar(lr_name, opt.param_groups[0]['lr'], epoch)
+        lr_name = f'lr_{i+2}'
+
+    writer.add_scalar(meters['test_acc'].name, eval_acc, epoch)
+
+    return meters, progress
 
 # deal with params
 def parser_arg():
@@ -43,7 +80,7 @@ def parser_arg():
     parser.add_argument('--method', type=str, default='BaseMethod', metavar='METHOD', choices=METHOD_NAMES, help='model_names: '+
                                                                                                            ' | '.join(METHOD_NAMES)+
                                                                                                            ' (defualt: BaseMethod)')
-    parser.add_argument('--backbone', type=str, default='resnet18', metavar='BACKBONE', choices=BACKBONE_NAMES, help='Backbone models: '+
+    parser.add_argument('--backbone', type=str, default='resnet18_cifar', metavar='BACKBONE', choices=BACKBONE_NAMES, help='Backbone models: '+
                                                                                                                      ' | '.join(BACKBONE_NAMES)+
                                                                                                                      ' (default: resnet18)')
     parser.add_argument('--epochs', type=int, default=200, metavar='N', help="epoch (default: 200)")
@@ -58,8 +95,8 @@ def parser_arg():
 
 
     ## debug
-    # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 777 \
-    #                                    --backbone resnet18_cifar --method SelfKD_KL --dataset CIFAR100 \
+    # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 41 \
+    #                                    --backbone resnet18_cifar --method BaseMethod --dataset CIFAR100 \
     #                                    --batch_size 128 --num_threads 4'.split())
                                        
     ## real
@@ -104,21 +141,12 @@ if __name__ == "__main__":
     ## construct the model
     num_classes = {'CIFAR10': 10, 'CIFAR100':100, 'CUB200':200}
     backbone = resnet.__dict__[args.backbone](num_classes=num_classes[args.dataset])
-    if any(c in args.method for c in ['Base', 'KD', 'SD']):
-        if args.alpha:
-            model = method_use_alpha(methods.__dict__[args.method])(args, backbone)
-        elif args.beta:
-            model = method_beta_scheduling(methods.__dict__[args.method])(args, backbone)
-        elif args.eta:
-            model = method_eta_CosAnealing(methods.__dict__[args.method])(args, backbone)
-        else:
-            model = methods.__dict__[args.method](args, backbone)
-    elif any(c in args.method for c in ['AFD', 'DML']):
+    model: BaseMethod   # type hint
+    if any(c in args.method for c in ['Base', 'KD', 'SD', 'BYOT']):
+        model = methods.__dict__[args.method](args, backbone)
+    elif any(c in args.method for c in ['DML']):
         backbone2 = resnet.__dict__[args.backbone](num_classes=num_classes[args.dataset])
         model = methods.__dict__[args.method](args, backbone, backbone2)
-
-    elif any(c in args.method for c in ['BYOT']):
-        model = methods.__dict__[args.method](args, backbone)
     else:
         logger.log(f'{args.method} is not available')
         raise NotImplementedError()
@@ -142,33 +170,21 @@ if __name__ == "__main__":
     cal_num_parameters(model.parameters(), file=args.logfile)
 
     ############### Training ###############
-    ## log
+    # log optimizer informations
     log_optim(model.optimizer, model.lr_scheduler, logger)
-    log_list = [meter for meter in model.set_log(0, 0)[0].values() if not meter.name == 'Data']
-    log_list.append(AverageMeter('Test_Acc', ':.4f'))
-    progress = ProgressMeter(args.epochs, meters=log_list, prefix=f'EPOCH')
-    writer = SummaryWriter(log_dir=args.tb_folder)
+    meters, progress = set_log(args.epochs)
+    writer = SummaryWriter(log_dir=args.tb_folder)  # tensorboard writer
     end = time.time()
     max_acc = 0.0
     for epoch in range(epoch_init, args.epochs+1):
         ## train
-        loss_list = model.train_loop(trainloader, epoch=epoch)
-        log_list[0].update(time.time() - end)
+        loss_meters = model.train_loop(trainloader, epoch=epoch)
         
         ## eval
         eval_acc = model.evaluation(testloader)
         
         ## log
-        for i, loss in enumerate(loss_list):
-            log_list[i+1].update(loss.avg)
-            writer.add_scalar(loss.name, loss.avg, epoch)
-        lr_name = 'lr'
-        for i, opt in enumerate(model.optimizer.optimizers):
-            writer.add_scalar(lr_name, opt.param_groups[0]['lr'], epoch)
-            lr_name = f'lr_{i+2}'
-        log_list[-1].update(eval_acc)
-        writer.add_scalar(log_list[-1].name, eval_acc, epoch)
-
+        meters, progress = update_log(loss_meters, meters, progress, writer)
         logger.log(progress.display(epoch), consol=False)
 
         ## save
@@ -182,10 +198,6 @@ if __name__ == "__main__":
             filename = os.path.join(args.save_folder, 'checkpoint_best.pth.tar')
             logger.log('#'*20+'Save Best Model'+'#'*20)
             torch.save(state, filename)
-        
-        # if epoch in [49, 50, 99, 100, 149, 150]:
-        #     filename = os.path.join(args.save_folder, f'checkpoint_epoch{epoch:03d}.pth.tar')
-        #     torch.save(state, filename)
         
         end = time.time()
     filename = os.path.join(args.save_folder, 'checkpoint_last.pth.tar')

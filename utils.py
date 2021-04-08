@@ -50,6 +50,7 @@ class ProgressMeter(object):
         self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
         self.meters = meters
         self.prefix = prefix
+        self.num_batchs = num_batches
 
     def display(self, batch):
         entries = [self.prefix + self.batch_fmtstr.format(batch)]
