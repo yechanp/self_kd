@@ -147,7 +147,6 @@ class BaseMethod(nn.Module):
 
             if (i%freq) == 0:
                 self.progress.display(i)
-            break
 
         ## lr schedulder
         self.lr_scheduler.step()
