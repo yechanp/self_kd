@@ -70,7 +70,7 @@ def parser_arg():
     ## 
     parser.add_argument('--exp_name', type=str, default='', help="the name of experiment")
     parser.add_argument('-g', '--gpu', type=int, dest='gpu', metavar='N', default=0, help="gpu")
-    parser.add_argument('--num_threads', type=int, default=4, metavar='N', help="the number of threads (default: 1)")
+    parser.add_argument('--num_workers', type=int, default=1, metavar='N', help="the number of workers in dataloader (default: 1)")
     parser.add_argument('--seed', type=int, default=0, metavar='N', help='seed number. if 0, do not fix seed (default: 0)')
     parser.add_argument('--resume', type=str, default='', help='resume path')
     parser.add_argument('--dataset', type=str, default='CIFAR100', help='dataset', 
@@ -97,7 +97,7 @@ def parser_arg():
     ## debug
     # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 41 \
     #                                    --backbone resnet18_cifar --method BaseMethod --dataset CIFAR100 \
-    #                                    --batch_size 128 --num_threads 4'.split())
+    #                                    --batch_size 128 --num_workers 4'.split())
                                        
     ## real
     args, _ = parser.parse_known_args()
@@ -109,8 +109,8 @@ if __name__ == "__main__":
     # set environment variables: gpu, num_thread
     args = parser_arg()
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
-    os.environ['OMP_NUM_THREADS'] = str(args.num_threads)
-    os.environ['MKL_NUM_THREADS'] = str(args.num_threads)
+    os.environ['OMP_NUM_THREADS'] = 1
+    os.environ['MKL_NUM_THREADS'] = 1
     # torch.set_num_threads(1)
 
     # logger
@@ -125,15 +125,15 @@ if __name__ == "__main__":
     ############### Load Data ###############
     if 'CS_KD' in args.method:
         trainloader, testloader = make_loader(args.dataset, batch_size=args.batch_size, aug=args.aug, 
-                                              sampler='CS_KD', num_workers=args.num_threads)
+                                              sampler='CS_KD', num_workers=args.num_workers)
         logger.log('Dataset for Class-wise Self KD')
     elif 'DDGSD' in args.method:
         trainloader, testloader = make_loader(args.dataset, batch_size=args.batch_size, aug=args.aug, 
-                                              sampler='DDGSD', num_workers=args.num_threads)
+                                              sampler='DDGSD', num_workers=args.num_workers)
         logger.log('Dataset for Data Distortion Guided Self Distillation')
     else:
         trainloader, testloader = make_loader(args.dataset, batch_size=args.batch_size, aug=args.aug,
-                                              num_workers=args.num_threads)
+                                              num_workers=args.num_workers)
         logger.log('Dataset for the method without sampler')
 
     ############### Define Model ###############

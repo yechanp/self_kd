@@ -68,7 +68,7 @@ def make_loader(dataset: str = 'CIFAR100', root: str = DATAPATH,
     else:
         raise NotImplementedError(f"{dataset} is not available")
 
-    batch_size_test = batch_size*2
+    batch_size_test = batch_size
     if sampler == 'DDGSD':
         sampler = DDGSD_Sampler(trainset, batch_size)
         batch_size = 1  # if not 1, error raise
