@@ -109,8 +109,8 @@ if __name__ == "__main__":
     # set environment variables: gpu, num_thread
     args = parser_arg()
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
-    os.environ['OMP_NUM_THREADS'] = 1
-    os.environ['MKL_NUM_THREADS'] = 1
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
     # torch.set_num_threads(1)
 
     # logger
