@@ -1,4 +1,6 @@
 #-------------------------------------
+# KL Divergence Loss는 kl_div_loss라는 funtion으로 구현.
+# 
 # 기본적으로 BaseMethod class를 상속받아서 method를 구현하면 됩니다.
 # 상속 후, 수정할 부분은 init과 calculate_loss 입니다.
 # calculate_loss 에서 return 값은 기본적으로 2개 입니다.
@@ -31,21 +33,19 @@ __all__ = ['BaseMethod', 'SD_Dropout',
            'CS_KD_Dropout', 'DDGSD_Dropout']
 
 def kl_div_loss(pred: Tensor, target: Tensor, t: float = 3.0) -> Tensor:
+    """
+    Calculate KL Divergence Loss.
+    Args:
+        pred: output logit before softmax
+        target: output logit before softmax
+        t: temperature
+    Return:
+        kl divergence loss
+    """
     x_log = F.log_softmax(pred/t, dim=1)
     y = F.softmax(target/t, dim=1)
     
     return F.kl_div(x_log, y, reduction='batchmean')
-
-def make_output(net, feat: Tensor) -> Tensor:
-    """
-    make output of feature
-    feat: (B x C x H x W)
-    """
-    out = net.avgpool(feat)
-    out = torch.flatten(out, 1)
-    out = net.fc(out)
-
-    return out
 
 def make_feature_vector(x: Tensor) -> Tensor:
     """
@@ -107,8 +107,8 @@ class BaseMethod(nn.Module):
         Args:
             x, y: Tensor.
         Return:
-            losses: Dict
-            feature_vectors: Tensor
+            losses: Dict. {'loss_ce': loss_ce, 'loss_kl': loss_kl, 'loss_total': loss_ce+loss_kl}. Need 'loss_total'.
+            feature_vectors: (Tensor)
         """
         outputs = self.forward(x)
         loss_ce = self.criterion_ce(outputs, y)
@@ -202,6 +202,7 @@ class CS_KD(BaseMethod):
     def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.T = args.t
+        self.beta = args.beta
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Tensor]:
         batch_size = x.size(0)
@@ -214,7 +215,7 @@ class CS_KD(BaseMethod):
             outputs_cls, feats_cls = self.backbone(x[batch_size//2:], return_feat=True)
         loss_kl = (self.T**2)*kl_div_loss(output, outputs_cls.detach())
 
-        loss_total = loss_ce + loss_kl
+        loss_total = loss_ce + self.beta*loss_kl
 
         return ({'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_total':loss_total},
                 make_feature_vector(torch.cat([feats[-1], feats_cls[-1]], dim=0)) )
@@ -223,6 +224,7 @@ class CS_KD_Dropout(CS_KD):
     def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.P = args.p
+        self.alpha = args.alpha
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], List[Tensor]]:
         losses, feats = super().calculate_loss(x, y)
@@ -237,7 +239,7 @@ class CS_KD_Dropout(CS_KD):
         loss_kl_dp = (self.T**2)*kl_div_loss(output_dp1, output_dp2.detach(), t=self.T)
 
         losses['loss_kl_dropout'] = loss_kl_dp
-        losses['loss_total'] += loss_kl_dp
+        losses['loss_total'] += self.alpha*loss_kl_dp
 
         return losses, None
 
@@ -245,6 +247,7 @@ class DDGSD(BaseMethod):
     def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.T = args.t
+        self.beta = args.beta
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Tensor]:
         batch_size = x.shape[0] // 2
@@ -273,7 +276,7 @@ class DDGSD(BaseMethod):
         loss_mmd = F.mse_loss(feat_1, feat_2, reduction='sum')
 
         # total loss
-        loss_total = loss_ce + loss_kl + 0.005*loss_mmd
+        loss_total = loss_ce + self.beta*loss_kl + 0.005*loss_mmd
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_mmd':loss_mmd, 'loss_total':loss_total}, feats
 
@@ -281,6 +284,7 @@ class DDGSD_Dropout(DDGSD):
     def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.P = args.p
+        self.alpha = args.alpha
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
         losses, feats = super().calculate_loss(x, y)
@@ -297,7 +301,7 @@ class DDGSD_Dropout(DDGSD):
         loss_kl_dp = (self.T**2)*(loss_kl_dp1 + loss_kl_dp2)
 
         losses['loss_kl_dropout'] = loss_kl_dp
-        losses['loss_total'] += loss_kl_dp
+        losses['loss_total'] += self.alpha*loss_kl_dp
 
         return losses, None
 
