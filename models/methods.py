@@ -394,10 +394,55 @@ class DML(BaseMethod):
     def __init__(self, args, backbone: Module, backbone2: Module) -> None:
         super().__init__(args, backbone)
         self.beta = args.beta
+        self.backbone2 = backbone2
+        self.set_optimizer()
 
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
+        output_1, feats_1 = self.backbone(x, return_feat=True)
+        output_2, feats_2 = self.backbone2(x, return_feat=True)
+
+        # ce loss
+        loss_ce = 0.5*(self.criterion_ce(output_1, y) + self.criterion_ce(output_2, y))
+
+        # kl btw two model
+        loss_kl_12 = kl_div_loss(output_1, output_2.detach(), t=3.0)
+        loss_kl_21 = kl_div_loss(output_2, output_1.detach(), t=3.0)
+
+        loss_kl = 3.0**2 * (loss_kl_12 + loss_kl_21)
+
+        loss_total = loss_ce + self.beta*loss_kl
+
+        return ({'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_total':loss_total},
+                [make_feature_vector(feats_1[-1]),
+                make_feature_vector(feats_2[-1]) ] )
 
 
 class DML_Dropout(DML):
-    def __init__(self, args, backbone: nn.Module) -> None:
-        super().__init__(args, backbone)
-        self.beta = args.beta
+    def __init__(self, args, backbone: Module, backbone2: Module) -> None:
+        super().__init__(args, backbone, backbone2)
+        self.T = args.t
+        self.P = args.p
+        self.alpha = args.alpha
+        self.detach = args.detach
+
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
+        losses, feature_vectors = super().calculate_loss(x, y)
+
+        # dropout only last feature
+        feats_dp = [F.dropout(feature_vectors[i], p=self.P) for i in range(2)]
+        output_dp1, output_dp2 = [self.backbone.fc(feats_dp[j]) for j in range(2)]
+
+        # KL Divergence using dropout
+        if not self.detach:     # no detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2, t=self.T)
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1, t=self.T)
+        else:                   # detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2.detach(), t=self.T)
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1.detach(), t=self.T)
+
+        loss_kl_dp = (self.T**2)*(loss_kl_dp1 + loss_kl_dp2)
+
+        losses['loss_kl_dropout'] = loss_kl_dp
+        losses['loss_total'] += self.alpha*loss_kl_dp
+
+        return losses, None

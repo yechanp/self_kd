@@ -12,7 +12,7 @@ import torch.nn as nn
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
            'wide_resnet50_2', 'wide_resnet101_2',
-           'resnet18_cifar', 'multi_resnet18_kd']
+           'resnet18_cifar', 'byot_resnet18_cifar']
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
@@ -440,10 +440,10 @@ class Multi_ResNet(nn.Module):
             return x
 
             
-def multi_resnet50_kd(num_classes=1000):
+def byot_resnet50(num_classes=1000):
     return Multi_ResNet(Bottleneck, [3,4,6,3], num_classes=num_classes)
 
-def multi_resnet18_kd(num_classes=1000):
+def byot_resnet18_cifar(num_classes=1000):
     return Multi_ResNet(BasicBlock, [2,2,2,2], num_classes=num_classes)
 
 
