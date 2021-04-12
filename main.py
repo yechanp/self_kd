@@ -87,8 +87,9 @@ def parser_arg():
     parser.add_argument('--batch_size', type=int, default=128, metavar='N', help="batch size (default: 128)")
     parser.add_argument('-t', type=float, default=3.0, help="temperature (default: 3.0)")
     parser.add_argument('-p', type=float, default=0.5, help="the probability of dropout (default: 0.5)")
-    parser.add_argument('--alpha', type=float, default=1.0, help="the weight for SD_Dropout loss (default: 1.0)")
+    parser.add_argument('--alpha', type=float, default=0.1, help="the weight for SD_Dropout loss (default: 0.1)")
     parser.add_argument('--beta', type=float, default=1.0, help="the weight for the method loss (default: 1.0)")
+    parser.add_argument('--detach', dest='detach', action='store_true', help="detach or not when calculate KL loss using Dropout (default: False)")
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
     parser.add_argument('--lambda_byot', type=float, default=0., help="hyperparams of byot loss")
 

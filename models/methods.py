@@ -1,4 +1,5 @@
 #-------------------------------------
+# loss_total = ce_loss + beta*method_loss + alpha*dropout_kl_loss
 # KL Divergence Loss는 kl_div_loss라는 funtion으로 구현.
 # 
 # 기본적으로 BaseMethod class를 상속받아서 method를 구현하면 됩니다.
@@ -102,7 +103,7 @@ class BaseMethod(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         return self.backbone(x)
     
-    def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Tensor]:
         """
         Args:
             x, y: Tensor.
@@ -110,11 +111,11 @@ class BaseMethod(nn.Module):
             losses: Dict. {'loss_ce': loss_ce, 'loss_kl': loss_kl, 'loss_total': loss_ce+loss_kl}. Need 'loss_total'.
             feature_vectors: (Tensor)
         """
-        outputs = self.forward(x)
+        outputs, feats = self.backbone(x, return_feat=True)
         loss_ce = self.criterion_ce(outputs, y)
-        loss_total = loss_ce
+        loss_total = loss_ce.clone()
 
-        return {'loss_ce':loss_ce, 'loss_total':loss_total}, None
+        return {'loss_ce':loss_ce, 'loss_total':loss_total}, make_feature_vector(feats[-1])
 
     def update_optimizer(self, losses: Dict[str, Tensor]) -> None:
         assert 'loss_total' in losses.keys(), "loss_total needs"
@@ -175,33 +176,34 @@ class SD_Dropout(BaseMethod):
         super().__init__(args, backbone)
         self.T = args.t
         self.P = args.p
+        self.alpha = args.alpha
+        self.detach = args.detach
 
-    def calculate_loss(self, x: Tensor, y: Tensor) -> Dict[str, Tensor]:
-        # forward
-        output_wo_dropout, feats = self.backbone(x, return_feat=True)
-        
-        # cross-entropy loss
-        loss_ce = self.criterion_ce(output_wo_dropout, y)
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
+        losses, feature_vector = super().calculate_loss(x, y)
         
         # dropout only last feature
-        feature_vector = make_feature_vector(feats[-1])
         feats_dp = [F.dropout(feature_vector, p=self.P) for _ in range(2)]
         output_dp1, output_dp2 = [self.backbone.fc(feats_dp[j]) for j in range(2)]
         
         # KL Divergence
-        loss_kl1 = kl_div_loss(pred=output_dp1, target=output_dp2.detach(), t=self.T)
-        loss_kl2 = kl_div_loss(pred=output_dp2, target=output_dp1.detach(), t=self.T)
-        loss_kl = (self.T**2)*(loss_kl1 + loss_kl2)
+        if not self.detach:     # no detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2, t=self.T)
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1, t=self.T)
+        else:                   # detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2.detach(), t=self.T)
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1.detach(), t=self.T)
+        loss_kl = (self.T**2)*(loss_kl_dp1 + loss_kl_dp2)
 
         # total loss
-        loss_total = loss_ce + loss_kl
+        losses['loss_kl'] = loss_kl
+        losses['loss_total'] += self.alpha*loss_kl
 
-        return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_total':loss_total}, None
+        return losses, None
 
 class CS_KD(BaseMethod):
     def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
-        self.T = args.t
         self.beta = args.beta
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Tensor]:
@@ -212,31 +214,38 @@ class CS_KD(BaseMethod):
         loss_ce = self.criterion_ce(output, y_)
 
         with torch.no_grad():
-            outputs_cls, feats_cls = self.backbone(x[batch_size//2:], return_feat=True)
-        loss_kl = (self.T**2)*kl_div_loss(output, outputs_cls.detach())
+            outputs_cls, _ = self.backbone(x[batch_size//2:], return_feat=True)
+        loss_kl = (4.0**2)*kl_div_loss(output, outputs_cls.detach(), t=4.0)
 
         loss_total = loss_ce + self.beta*loss_kl
 
         return ({'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_total':loss_total},
-                make_feature_vector(torch.cat([feats[-1], feats_cls[-1]], dim=0)) )
+                make_feature_vector(feats[-1]) )
 
 class CS_KD_Dropout(CS_KD):
     def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
+        self.T = args.t
         self.P = args.p
         self.alpha = args.alpha
+        self.detach = args.detach
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], List[Tensor]]:
-        losses, feats = super().calculate_loss(x, y)
-        batch_size = x.shape[0] // 2
+        losses, feature_vector = super().calculate_loss(x, y)
 
         # dropout only last feature
-        feats_dp = F.dropout(feats, p=self.P)
-        output_dp = self.backbone.fc(feats_dp)
-        output_dp1, output_dp2 = output_dp[:batch_size], output_dp[batch_size:]
+        feats_dp = [F.dropout(feature_vector, p=self.P) for _ in range(2)]
+        output_dp1, output_dp2 = [self.backbone.fc(feats_dp[j]) for j in range(2)]
 
         # KL Divergence using dropout
-        loss_kl_dp = (self.T**2)*kl_div_loss(output_dp1, output_dp2.detach(), t=self.T)
+        if not self.detach:     # no detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2, t=self.T)
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1, t=self.T)
+        else:                   # detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2.detach(), t=self.T)
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1.detach(), t=self.T)
+
+        loss_kl_dp = (self.T**2)*(loss_kl_dp1 + loss_kl_dp2)
 
         losses['loss_kl_dropout'] = loss_kl_dp
         losses['loss_total'] += self.alpha*loss_kl_dp
@@ -246,7 +255,6 @@ class CS_KD_Dropout(CS_KD):
 class DDGSD(BaseMethod):
     def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
-        self.T = args.t
         self.beta = args.beta
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Tensor]:
@@ -268,9 +276,9 @@ class DDGSD(BaseMethod):
         loss_ce = loss_ce1 + loss_ce2
         
         # KL Divergence
-        loss_kl1 = kl_div_loss(output_1, output_2.detach(), t=self.T)
-        loss_kl2 = kl_div_loss(output_2, output_1.detach(), t=self.T)
-        loss_kl = (loss_kl1 + loss_kl2)
+        loss_kl1 = kl_div_loss(output_1, output_2.detach(), t=3.0)
+        loss_kl2 = kl_div_loss(output_2, output_1.detach(), t=3.0)
+        loss_kl = (3.0**2)*(loss_kl1 + loss_kl2)
 
         # MMD loss
         loss_mmd = F.mse_loss(feat_1, feat_2, reduction='sum')
@@ -283,21 +291,27 @@ class DDGSD(BaseMethod):
 class DDGSD_Dropout(DDGSD):
     def __init__(self, args, backbone: Module) -> None:
         super().__init__(args, backbone)
+        self.T = args.t
         self.P = args.p
         self.alpha = args.alpha
+        self.detach = args.detach
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
-        losses, feats = super().calculate_loss(x, y)
+        losses, feature_vector = super().calculate_loss(x, y)
         batch_size = x.shape[0] // 2
 
         # dropout only last feature
-        feats_dp = F.dropout(feats, p=self.P)
+        feats_dp = F.dropout(feature_vector, p=self.P)
         output_dp = self.backbone.fc(feats_dp)
         output_dp1, output_dp2 = output_dp[:batch_size], output_dp[batch_size:]
 
         # KL Divergence using dropout
-        loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2.detach(), t=self.T)
-        loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1.detach(), t=self.T)
+        if not self.detach:     # no detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2, t=self.T)
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1, t=self.T)
+        else:                   # detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2.detach(), t=self.T)
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1.detach(), t=self.T)
         loss_kl_dp = (self.T**2)*(loss_kl_dp1 + loss_kl_dp2)
 
         losses['loss_kl_dropout'] = loss_kl_dp
