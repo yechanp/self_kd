@@ -135,9 +135,8 @@ def set_args(args):
     args.exp_name = f'{args.dataset}_{args.method}_{args.backbone}_{args.exp_name}'
     if 'Self' in args.method: args.exp_name += f'_p{args.p}'
     if any(c in args.method for c in ['KD', 'SD']): args.exp_name += f'_t{args.t}'
-    if args.alpha: args.exp_name += f'_alpha{args.alpha}'
+    if args.alpha != 1.0: args.exp_name += f'_alpha{args.alpha}'
     if args.beta != 1.0: args.exp_name += f'_beta{args.beta}'
-    if args.eta: args.exp_name += f'_CosAnealT{args.eta}'
     args.exp_name += f'_B{args.batch_size}'
     if args.seed: args.exp_name += f'_seed{args.seed}'
     ## directory
