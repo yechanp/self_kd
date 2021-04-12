@@ -91,7 +91,6 @@ def parser_arg():
     parser.add_argument('--beta', type=float, default=1.0, help="the weight for the method loss (default: 1.0)")
     parser.add_argument('--detach', dest='detach', action='store_true', help="detach or not when calculate KL loss using Dropout (default: False)")
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
-    parser.add_argument('--lambda_byot', type=float, default=0., help="hyperparams of byot loss")
 
 
     ## debug

@@ -30,8 +30,10 @@ import math
 from utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedulers
 
 __all__ = ['BaseMethod', 'SD_Dropout', 
-           'CS_KD', 'DDGSD', 'BYOT',
-           'CS_KD_Dropout', 'DDGSD_Dropout']
+           'CS_KD', 'DDGSD',
+           'CS_KD_Dropout', 'DDGSD_Dropout',
+            'BYOT', 'BYOT_Dropout',
+            'DML', 'DML_Dropout',]
 
 def kl_div_loss(pred: Tensor, target: Tensor, t: float = 3.0) -> Tensor:
     """
@@ -319,196 +321,83 @@ class DDGSD_Dropout(DDGSD):
 
         return losses, None
 
-#############################################################
 
-def kd_loss_function(output, target_output, args):
-    """Compute kd loss"""
-    """
-    para: output: middle ouptput logits.
-    para: target_output: final output has divided by temperature and softmax.
-    """
+class BYOT(BaseMethod):
+    def __init__(self, args, backbone: nn.Module) -> None:
+        super().__init__(args, backbone)
+        self.beta = args.beta
 
-    output = output / args.t
-    output_log_softmax = torch.log_softmax(output, dim=1)
-    loss_kd = -torch.mean(torch.sum(output_log_softmax * target_output, dim=1))
-    return loss_kd
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
 
-def feature_loss_function(fea, target_fea):
-    loss = (fea - target_fea)**2 * ((fea > 0) | (target_fea > 0)).float()
-    return torch.abs(loss).sum()
+        output, middle_output1, middle_output2, middle_output3, final_fea,\
+             middle1_fea, middle2_fea, middle3_fea = self.backbone(x, return_feat=True)
+        
+        # final ce loss
+        loss_ce = self.criterion_ce(output, y)
+        
+        # middle ce loss
+        middle_loss_1 = self.criterion_ce(middle_output1, y)
+        middle_loss_2 = self.criterion_ce(middle_output2, y)
+        middle_loss_3 = self.criterion_ce(middle_output3, y)
+        middle_loss = middle_loss_1 + middle_loss_2 + middle_loss_3
 
-class BYOT(nn.Module):
+        # middle kl loss
+        loss1by4 = kl_div_loss(middle_output1, output.detach(), t=3.0)
+        loss2by4 = kl_div_loss(middle_output2, output.detach(), t=3.0)
+        loss3by4 = kl_div_loss(middle_output3, output.detach(), t=3.0)
 
-    def __init__(self, args, backbone: Module) -> None:
-        super().__init__()
-        self.args = args
-        self.backbone = backbone
+        loss_kl_btw_blk = (loss1by4+loss2by4+loss3by4) * 3.0**2  # (?)
+
+        # middle feature loss
+        feature_loss_1 = F.mse_loss(middle1_fea, final_fea.detach())
+        feature_loss_2 = F.mse_loss(middle2_fea, final_fea.detach())
+        feature_loss_3 = F.mse_loss(middle3_fea, final_fea.detach())
+        feature_loss = (feature_loss_1 + feature_loss_2 + feature_loss_3)
+
+        loss_total = loss_ce + self.beta*(0.9*middle_loss + 0.1*loss_kl_btw_blk + 0.000001*feature_loss) 
+
+        return {'loss_ce':loss_ce, 'loss_kl':middle_loss, 'loss_mmd':loss_kl_btw_blk, 'loss_total':loss_total}, final_fea
+
+
+class BYOT_Dropout(BYOT):
+    def __init__(self, args, backbone: nn.Module) -> None:
+        super().__init__(args, backbone)
         self.T = args.t
         self.P = args.p
-        self.dropout = nn.Dropout2d(p=self.P)
-        self.set_optimizer()
+        self.alpha = args.alpha
+        self.detach = args.detach
 
-    def set_log(self, epoch: int, num_batchs: int) -> Tuple[Dict[str, AverageMeter], ProgressMeter]:
-        meters = {}
-        meters['batch_time'] = AverageMeter('Time', ':.3f')
-        meters['data_time'] = AverageMeter('Data', ':.3f')
-        meters['losses'] = AverageMeter('Loss', ':.4f')
-
-        progress = ProgressMeter(num_batchs,
-                                 meters.values(),
-                                 prefix=f'Epoch[{epoch}] Batch')
-
-        return meters, progress
-
-    def set_optimizer(self) -> None:
-        self.criterion = nn.CrossEntropyLoss()
-        self.criterion_kl = nn.KLDivLoss(reduction='batchmean')
-
-
-        optimizer = torch.optim.SGD(
-            self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
-        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            optimizer, milestones=[100, 150], gamma=0.1)
-        self.optimizer = MultipleOptimizer([optimizer])
-        self.lr_scheduler = MultipleSchedulers([lr_scheduler])
-
-    def compute_kl_loss(self, pred: Tensor, target: Tensor) -> Tensor:
-        x_log = F.log_softmax(pred/self.T, dim=1)
-        y = F.softmax(target/self.T, dim=1)
-        
-        return self.criterion_kl(x_log, y)
-
-    def kd_loss_function(output, target_output, args):
-        """Compute kd loss"""
-        """
-        para: output: middle ouptput logits.
-        para: target_output: final output has divided by temperature and softmax.
-        """
-
-        output = output / args.t
-        output_log_softmax = torch.log_softmax(output, dim=1)
-        loss_kd = -torch.mean(torch.sum(output_log_softmax * target_output, dim=1))
-        return loss_kd
-
-    def make_feats_dropout(self, feat: Tensor, num: int = 2) -> List[Tensor]:
-        """
-        make features with dropout
-        feat: (B x C x H x W)
-        num: # of features with dropout
-        """
-        return [self.dropout(feat) for _ in range(num)]
-
-    def forward(self, x: Tensor) -> Tensor:
-        return self.backbone(x)
-        
-    def make_output(self, feat: Tensor) -> Tensor:
-        """
-        make output of feature
-        feat: (B x C x H x W)
-        """
-        net = self.backbone
-        out = net.avgpool(feat)
-        out = torch.flatten(out, 1)
-        out = net.fc(out)
-
-        return out
-    def calculate_loss(self, x: Tensor, target: Tensor) -> Dict[str, Tensor]:
-
-        output, middle_output1, middle_output2, middle_output3, final_fea, middle1_fea, middle2_fea, middle3_fea = self.forward(x)
-        loss_ce = self.criterion(output, target)
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], List[Tensor]]:
+        losses, feature_vector = super().calculate_loss(x, y)
 
         # dropout only last feature
-        feats_dp = self.make_feats_dropout(final_fea)
-        output_dp1, output_dp2 = [self.make_output(feats_dp[j]) for j in range(2)]
-        
-        # KL Divergence
-        loss_kl1 = self.compute_kl_loss(output_dp1, output_dp2.detach())
-        loss_kl2 = self.compute_kl_loss(output_dp2, output_dp1.detach())
-        loss_self_kl = (self.T**2)*(loss_kl1 + loss_kl2)
+        feats_dp = [F.dropout(feature_vector, p=self.P).squeeze() for _ in range(2)]
+        output_dp1, output_dp2 = [self.backbone.fc(feats_dp[j]) for j in range(2)]
+
+        # KL Divergence using dropout
+        if not self.detach:     # no detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2, t=self.T)
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1, t=self.T)
+        else:                   # detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2.detach(), t=self.T)
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1.detach(), t=self.T)
+
+        loss_kl_dp = (self.T**2)*(loss_kl_dp1 + loss_kl_dp2)
+
+        losses['loss_kl_dropout'] = loss_kl_dp
+        losses['loss_total'] += self.alpha*loss_kl_dp
+
+        return losses, None
+
+
+class DML(BaseMethod):
+    def __init__(self, args, backbone: Module, backbone2: Module) -> None:
+        super().__init__(args, backbone)
+        self.beta = args.beta
 
 
 
-        middle1_loss = self.criterion(middle_output1, target)
-        middle2_loss = self.criterion(middle_output2, target)
-        middle3_loss = self.criterion(middle_output3, target)
-        temp4 = output / self.args.t
-        temp4 = torch.softmax(temp4, dim=1)
-
-        loss1by4 = kd_loss_function(
-            middle_output1, temp4.detach(), self.args) * (self.args.t**2)
-        loss2by4 = kd_loss_function(
-            middle_output2, temp4.detach(), self.args) * (self.args.t**2)
-        loss3by4 = kd_loss_function(
-            middle_output3, temp4.detach(), self.args) * (self.args.t**2)
-
-        feature_loss_1 = feature_loss_function(middle1_fea, final_fea.detach())
-        feature_loss_2 = feature_loss_function(middle2_fea, final_fea.detach())
-        feature_loss_3 = feature_loss_function(middle3_fea, final_fea.detach())
-
-        byot_loss =  (middle1_loss + middle2_loss + middle3_loss) \
-            + 0.1 * (loss1by4 + loss2by4 + loss3by4) \
-                + 0.000001 * (feature_loss_1 + feature_loss_2 + feature_loss_3)
-
-        loss = loss_ce + self.args.alpha*loss_self_kl + self.args.lambda_byot*byot_loss
-        return {'loss': loss}
-
-    def update_optimizer(self, results: Dict[str, Tensor]) -> None:
-        loss = results['loss']
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-    def update_log(self,
-                   results: Dict[str, Tensor],
-                   meters: Dict[str, AverageMeter],
-                   size: int, end) -> Dict[str, AverageMeter]:
-        meters['losses'].update(results['loss'].item(), size)
-        meters['batch_time'].update(time.time() - end)
-
-        return meters
-
-    def train_loop(self, dataloader, epoch: int, freq: int = 10) -> Dict[str, AverageMeter]:
-        self.train()
-        meters, progress = self.set_log(epoch, len(dataloader))
-        end = time.time()
-        for i, (x, y) in enumerate(dataloader):
-            meters['data_time'].update(time.time() - end)
-            if torch.cuda.is_available():
-                x, y = x.cuda(), y.cuda()
-
-            # calculate loss
-            results = self.calculate_loss(x, y)
-
-            # back-propagation
-            self.update_optimizer(results)
-
-            # log
-            meters = self.update_log(results, meters, x.size(0), end)
-            end = time.time()
-
-            if (i % freq) == 0:
-                progress.display(i)
-
-        # lr schedulder
-        self.lr_scheduler.step()
-        return [meter for meter in meters.values() if 'Loss' in meter.name]
-
-    @torch.no_grad()
-    def evaluation(self, dataloader) -> float:
-        self.eval()
-        correct = 0
-        total = 0
-        for x, y in dataloader:
-            if torch.cuda.is_available():
-                x, y = x.cuda(), y.cuda()
-            outputs = self.forward(x)
-            _, preds = torch.max(outputs[0], dim=1)
-
-            # log
-            total += y.size(0)
-            correct += (preds == y).sum().item()
-        # print(f'Acc {100*correct/total:.4f}')
-        return 100*correct/total
-
-################################
+class DML_Dropout(DML):
+    def __init__(self, args, backbone: nn.Module) -> None:
+        super().__init__(args, backbone)
+        self.beta = args.beta

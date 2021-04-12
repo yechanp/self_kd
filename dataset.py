@@ -8,7 +8,7 @@ from torchvision.datasets.folder import default_loader
 from torchvision.datasets.utils import download_url
 from torch.utils.data import Dataset, Sampler, DataLoader
 
-DATAPATH = 'dataset/'
+DATAPATH = '~/dataset/'
 
 def make_loader(dataset: str = 'CIFAR100', root: str = DATAPATH, 
                 batch_size: int = 128, aug: bool = False, 

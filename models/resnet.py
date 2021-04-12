@@ -402,7 +402,7 @@ class Multi_ResNet(nn.Module):
         
         return nn.Sequential(*layer)
     
-    def forward(self, x):
+    def forward(self, x, return_feat=False):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -434,9 +434,12 @@ class Multi_ResNet(nn.Module):
         final_fea = x
         x = torch.flatten(x, 1)
         x = self.fc(x)
+        if return_feat:
+            return x, middle_output1, middle_output2, middle_output3, final_fea, middle1_fea, middle2_fea, middle3_fea
+        else :
+            return x
 
-        return x, middle_output1, middle_output2, middle_output3, final_fea, middle1_fea, middle2_fea, middle3_fea
-
+            
 def multi_resnet50_kd(num_classes=1000):
     return Multi_ResNet(Bottleneck, [3,4,6,3], num_classes=num_classes)
 
