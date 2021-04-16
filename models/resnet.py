@@ -12,7 +12,7 @@ import torch.nn as nn
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
            'wide_resnet50_2', 'wide_resnet101_2',
-           'resnet18_cifar', 'byot_resnet18_cifar']
+           'resnet18_cifar', 'byot_resnet18_cifar', 'byot_resnet18']
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
@@ -330,13 +330,15 @@ class Multi_ResNet(nn.Module):
         num_classes (int): class num
     """
 
-    def __init__(self, block, layers, num_classes=1000):
+    def __init__(self, block, layers, num_classes=1000, cifar=True):
         super(Multi_ResNet, self).__init__()
         self.inplanes = 64
+        self.cifar = cifar
         self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
-        # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        if self.cifar is False:
+            self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
@@ -406,7 +408,8 @@ class Multi_ResNet(nn.Module):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
-        # x = self.maxpool(x)
+        if self.cifar is False:
+            x = self.maxpool(x)
 
         x = self.layer1(x)
         middle_output1 = self.bottleneck1_1(x)
@@ -445,6 +448,11 @@ def byot_resnet50(num_classes=1000):
 
 def byot_resnet18_cifar(num_classes=1000):
     return Multi_ResNet(BasicBlock, [2,2,2,2], num_classes=num_classes)
+
+
+def byot_resnet18(num_classes=1000):
+    return Multi_ResNet(BasicBlock, [2,2,2,2], num_classes=num_classes, cifar=False)
+
 
 
 def _resnet(block, layers, **kwargs):

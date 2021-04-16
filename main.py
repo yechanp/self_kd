@@ -100,7 +100,7 @@ def parser_arg():
                                        
     ## real
     args, _ = parser.parse_known_args()
-
+    print(args.detach, type(args.detach))
     return set_args(args)
 
 if __name__ == "__main__":
@@ -145,6 +145,7 @@ if __name__ == "__main__":
         model = methods.__dict__[args.method](args, backbone)
     elif any(c in args.method for c in ['DML']):
         backbone2 = resnet.__dict__[args.backbone](num_classes=num_classes[args.dataset])
+        backbone2.cuda()
         model = methods.__dict__[args.method](args, backbone, backbone2)
     else:
         logger.log(f'{args.method} is not available')
@@ -196,7 +197,7 @@ if __name__ == "__main__":
             max_acc = eval_acc
             filename = os.path.join(args.save_folder, 'checkpoint_best.pth.tar')
             logger.log('#'*20+'Save Best Model'+'#'*20)
-            torch.save(state, filename)
+            # torch.save(state, filename)
         
         end = time.time()
     filename = os.path.join(args.save_folder, 'checkpoint_last.pth.tar')
