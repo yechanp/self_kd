@@ -74,7 +74,7 @@ def parser_arg():
     parser.add_argument('--seed', type=int, default=0, metavar='N', help='seed number. if 0, do not fix seed (default: 0)')
     parser.add_argument('--resume', type=str, default='', help='resume path')
     parser.add_argument('--dataset', type=str, default='CIFAR100', help='dataset', 
-                        choices=['CIFAR10', 'CIFAR100', 'CUB200'])
+                        choices=['CIFAR10', 'CIFAR100', 'CUB200', 'DOG'])
 
     ## hyper-parameters
     parser.add_argument('--method', type=str, default='BaseMethod', metavar='METHOD', choices=METHOD_NAMES, help='model_names: '+
@@ -100,7 +100,7 @@ def parser_arg():
                                        
     ## real
     args, _ = parser.parse_known_args()
-    print(args.detach, type(args.detach))
+
     return set_args(args)
 
 if __name__ == "__main__":
@@ -138,14 +138,13 @@ if __name__ == "__main__":
     ############### Define Model ###############
     print("init neural networks")
     ## construct the model
-    num_classes = {'CIFAR10': 10, 'CIFAR100':100, 'CUB200':200}
+    num_classes = {'CIFAR10': 10, 'CIFAR100':100, 'CUB200':200, 'DOG':120}
     backbone = resnet.__dict__[args.backbone](num_classes=num_classes[args.dataset])
     model: BaseMethod   # type hint
     if any(c in args.method for c in ['Base', 'KD', 'SD', 'BYOT']):
         model = methods.__dict__[args.method](args, backbone)
     elif any(c in args.method for c in ['DML']):
         backbone2 = resnet.__dict__[args.backbone](num_classes=num_classes[args.dataset])
-        backbone2.cuda()
         model = methods.__dict__[args.method](args, backbone, backbone2)
     else:
         logger.log(f'{args.method} is not available')
