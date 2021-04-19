@@ -33,7 +33,7 @@ __all__ = ['BaseMethod', 'SD_Dropout',
            'CS_KD', 'DDGSD',
            'CS_KD_Dropout', 'DDGSD_Dropout',
             'BYOT', 'BYOT_Dropout',
-            'DML', 'DML_Dropout',]
+            'DML', 'DML_Dropout','DML_Dropout_V1']
 
 def kl_div_loss(pred: Tensor, target: Tensor, t: float = 3.0) -> Tensor:
     """
@@ -430,6 +430,37 @@ class DML_Dropout(DML):
 
         # dropout only last feature
         feats_dp = [F.dropout(feature_vectors[i], p=self.P) for i in range(2)]
+        output_dp1, output_dp2 = [self.backbone.fc(feats_dp[j]) for j in range(2)]
+
+        # KL Divergence using dropout
+        if not self.detach:     # no detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2, t=self.T)
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1, t=self.T)
+        else:                   # detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2.detach(), t=self.T)
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1.detach(), t=self.T)
+
+        loss_kl_dp = (self.T**2)*(loss_kl_dp1 + loss_kl_dp2)
+
+        losses['loss_kl_dropout'] = loss_kl_dp
+        losses['loss_total'] += self.alpha*loss_kl_dp
+
+        return losses, None
+
+
+class DML_Dropout_V1(DML):
+    def __init__(self, args, backbone: Module, backbone2: Module) -> None:
+        super().__init__(args, backbone, backbone2)
+        self.T = args.t
+        self.P = args.p
+        self.alpha = args.alpha
+        self.detach = args.detach
+
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
+        losses, feature_vectors = super().calculate_loss(x, y)
+
+        # dropout only last feature
+        feats_dp = [F.dropout(feature_vectors[0], p=self.P) for _ in range(2)]
         output_dp1, output_dp2 = [self.backbone.fc(feats_dp[j]) for j in range(2)]
 
         # KL Divergence using dropout

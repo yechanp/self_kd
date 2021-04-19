@@ -145,6 +145,7 @@ if __name__ == "__main__":
         model = methods.__dict__[args.method](args, backbone)
     elif any(c in args.method for c in ['DML']):
         backbone2 = resnet.__dict__[args.backbone](num_classes=num_classes[args.dataset])
+        backbone2.cuda()
         model = methods.__dict__[args.method](args, backbone, backbone2)
     else:
         logger.log(f'{args.method} is not available')
