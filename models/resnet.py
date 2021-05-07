@@ -12,7 +12,8 @@ import torch.nn as nn
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
            'wide_resnet50_2', 'wide_resnet101_2',
-           'resnet18_cifar', 'byot_resnet18_cifar', 'byot_resnet18']
+           'resnet18_cifar', 'resnet34_cifar', 'resnet50_cifar',
+           'byot_resnet18_cifar', 'byot_resnet18']
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
@@ -461,6 +462,12 @@ def _resnet(block, layers, **kwargs):
 
 def resnet18_cifar(**kwargs):
     return ResNet_CIFAR(BasicBlock, [2, 2, 2, 2], **kwargs)
+
+def resnet34_cifar(**kwargs):
+    return ResNet_CIFAR(BasicBlock, [3, 4, 6, 3], **kwargs)
+
+def resnet50_cifar(**kwargs):
+    return ResNet_CIFAR(Bottleneck, [3, 4, 6, 3], **kwargs)
 
 def resnet18(**kwargs):
     r"""ResNet-18 model from

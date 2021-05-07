@@ -133,7 +133,7 @@ def log_optim(optimizers: MultipleOptimizer, schedulers: MultipleSchedulers, log
 def set_args(args):
     ## experiment name
     args.exp_name = f'{args.dataset}_{args.method}_{args.backbone}_{args.exp_name}'
-    if args.p != 0.5: args.exp_name += f'_p{args.p}'
+    # if args.p != 0.5: args.exp_name += f'_p{args.p}'
     args.exp_name += f'_p{args.p}_t{args.t}_alpha{args.alpha}'
     args.exp_name += f'_beta{args.beta}'
     args.exp_name += f'_B{args.batch_size}'
