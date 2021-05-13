@@ -33,7 +33,8 @@ __all__ = ['BaseMethod', 'SD_Dropout',
            'CS_KD', 'DDGSD',
            'CS_KD_Dropout', 'DDGSD_Dropout',
             'BYOT', 'BYOT_Dropout',
-            'DML', 'DML_Dropout','DML_Dropout_V1']
+            'DML', 'DML_Dropout','DML_Dropout_V1',
+            'Base_Dropout', 'Base_Dropout_v2']
 
 def kl_div_loss(pred: Tensor, target: Tensor, t: float = 3.0) -> Tensor:
     """
@@ -475,5 +476,52 @@ class DML_Dropout_V1(DML):
 
         losses['loss_kl_dropout'] = loss_kl_dp
         losses['loss_total'] += self.alpha*loss_kl_dp
+
+        return losses, None
+
+class Base_Dropout(BaseMethod):
+    def __init__(self, args, backbone: Module) -> None:
+        super().__init__(args, backbone)
+        self.T = args.t
+        self.P = args.p
+        self.alpha = args.alpha
+        self.detach = args.detach
+
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
+        _, feature_vector = super().calculate_loss(x, y)
+        
+        # dropout only last feature
+        feats_dp = F.dropout(feature_vector, p=self.P)
+        output_dp = self.backbone.fc(feats_dp)
+        
+        loss_dropout = self.criterion_ce(output_dp, y)
+
+        # total loss
+        losses = {}
+        losses['loss_dropout'] = loss_dropout
+        losses['loss_total'] = self.alpha*loss_dropout
+
+        return losses, None
+
+class Base_Dropout_v2(BaseMethod):
+    def __init__(self, args, backbone: Module) -> None:
+        super().__init__(args, backbone)
+        self.T = args.t
+        self.P = args.p
+        self.alpha = args.alpha
+        self.detach = args.detach
+
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
+        losses, feature_vector = super().calculate_loss(x, y)
+        
+        # dropout only last feature
+        feats_dp = F.dropout(feature_vector, p=self.P)
+        output_dp = self.backbone.fc(feats_dp)
+        
+        loss_dropout = self.criterion_ce(output_dp, y)
+
+        # total loss
+        losses['loss_dropout'] = loss_dropout
+        losses['loss_total'] += self.alpha*loss_dropout
 
         return losses, None
