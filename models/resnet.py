@@ -14,7 +14,7 @@ __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'wide_resnet50_2', 'wide_resnet101_2',
            'resnet18_cifar', 'resnet34_cifar', 'resnet50_cifar',
            'byot_resnet18_cifar', 'byot_resnet18',
-           'resnext50_32x4d', 'wide_resnet50_2_cifar']
+           'resnext50_32x4d_cifar', 'wide_resnet50_2_cifar']
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
@@ -470,7 +470,7 @@ def resnet34_cifar(**kwargs):
 def resnet50_cifar(**kwargs):
     return ResNet_CIFAR(Bottleneck, [3, 4, 6, 3], **kwargs)
 
-def resnext50_32x4d(**kwargs):
+def resnext50_32x4d_cifar(**kwargs):
     kwargs['groups'] = 32
     kwargs['width_per_group'] = 4
     return ResNet_CIFAR(Bottleneck, [3, 4, 6, 3], **kwargs)
