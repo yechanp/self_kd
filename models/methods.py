@@ -103,8 +103,8 @@ class BaseMethod(nn.Module):
         self.optimizer = MultipleOptimizer([optimizer])
         self.lr_scheduler = MultipleSchedulers([lr_scheduler])
 
-    def forward(self, x: Tensor) -> Tensor:
-        return self.backbone(x)
+    def forward(self, x: Tensor, return_feat=False) -> Tensor:
+        return self.backbone(x, return_feat)
     
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Tensor]:
         """
@@ -330,8 +330,8 @@ class BYOT(BaseMethod):
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
 
-        output, middle_output1, middle_output2, middle_output3, final_fea,\
-             middle1_fea, middle2_fea, middle3_fea = self.backbone(x, return_feat=True)
+        output, [middle_output1, middle_output2, middle_output3, final_fea,\
+             middle1_fea, middle2_fea, middle3_fea] = self.backbone(x, return_feat=True)
         
         # final ce loss
         loss_ce = self.criterion_ce(output, y)
@@ -392,7 +392,7 @@ class BYOT_Dropout(BYOT):
 
 
 class DML(BaseMethod):
-    def __init__(self, args, backbone: Module, backbone2: Module) -> None:
+    def __init__(self, args, backbone: Module, backbone2: Module =None) -> None:
         super().__init__(args, backbone)
         self.beta = args.beta
         self.backbone2 = backbone2
@@ -419,7 +419,7 @@ class DML(BaseMethod):
 
 
 class DML_Dropout(DML):
-    def __init__(self, args, backbone: Module, backbone2: Module) -> None:
+    def __init__(self, args, backbone: Module, backbone2: Module=None) -> None:
         super().__init__(args, backbone, backbone2)
         self.T = args.t
         self.P = args.p

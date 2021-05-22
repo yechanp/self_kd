@@ -440,7 +440,7 @@ class Multi_ResNet(nn.Module):
         x = torch.flatten(x, 1)
         x = self.fc(x)
         if return_feat:
-            return x, middle_output1, middle_output2, middle_output3, final_fea, middle1_fea, middle2_fea, middle3_fea
+            return x, [middle_output1, middle_output2, middle_output3, final_fea, middle1_fea, middle2_fea, middle3_fea]
         else :
             return x
 
