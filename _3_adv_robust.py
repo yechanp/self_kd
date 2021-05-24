@@ -10,32 +10,59 @@ import numpy as np
 from tqdm import tqdm
 import pandas as pd
 
-
 exp_df = pd.DataFrame.from_dict(
-    [{'dataset': 'CIFAR100', 'method': 'DML', 'type':    'base', 'path': '/home/hseo0618/src/all_results/hyun/CIFAR100_DML_Dropout_resnet18_cifar__p0.5_t3.0_alpha0.0_beta1.0_B128_seed41_detachFalse'},
-     {'dataset': 'CUB200', 'method': 'DML', 'type':   'base',
-         'path': '/home/hseo0618/src/all_results/hyun/CUB200_DML_Dropout_resnet18__p0.5_t3.0_alpha0.0_beta1.0_B32_seed41_detachFalse'},
-        {'dataset': 'DOG', 'method': 'DML', 'type':   'base',
-            'path': '/home/hseo0618/src/all_results/hyun/DOG_DML_Dropout_resnet18__p0.5_t3.0_alpha0.0_beta1.0_B32_seed41_detachFalse'},
-     {'dataset': 'CIFAR100', 'method': 'DML', 'type': 'drop',
-         'path': '/home/hseo0618/src/all_results/hyun/CIFAR100_DML_Dropout_resnet18_cifar__p0.5_t3.0_alpha0.1_beta1.0_B128_seed41_detachFalse'},
-     {'dataset': 'CUB200', 'method': 'DML', 'type':   'drop',
-         'path': '/home/hseo0618/src/all_results/hyun/CUB200_DML_Dropout_resnet18__p0.5_t3.0_alpha0.1_beta1.0_B32_seed41_detachFalse'},
-     {'dataset': 'DOG', 'method': 'DML', 'type':   'drop',
-         'path': '/home/hseo0618/src/all_results/hyun/DOG_DML_Dropout_resnet18__p0.5_t3.0_alpha0.1_beta1.0_B32_seed41_detachFalse'},
-     {'dataset': 'CIFAR100', 'method': 'BYOT', 'type':    'base',
-         'path': '/home/hseo0618/src/all_results/hyun/CIFAR100_BYOT_Dropout_byot_resnet18_cifar__p0.5_t3.0_alpha0.0_beta0.1_B128_seed41_detachFalse'},
-     {'dataset': 'CUB200', 'method': 'BYOT', 'type':  'base',
-         'path': '/home/hseo0618/src/all_results/hyun/CUB200_BYOT_Dropout_byot_resnet18__p0.5_t3.0_alpha0.0_beta0.1_B32_seed41_detachFalse'},
-     {'dataset': 'DOG', 'method': 'BYOT', 'type':  'base',
-         'path': '/home/hseo0618/src/all_results/hyun/DOG_BYOT_Dropout_byot_resnet18__p0.5_t3.0_alpha0.0_beta0.1_B32_seed41_detachFalse'},
-     {'dataset': 'CIFAR100', 'method': 'BYOT', 'type':    'drop',
-         'path': '/home/hseo0618/src/all_results/hyun/CIFAR100_BYOT_Dropout_byot_resnet18_cifar__p0.5_t3.0_alpha0.1_beta0.1_B128_seed41_detachFalse'},
-     {'dataset': 'CUB200', 'method': 'BYOT', 'type':  'drop',
-         'path': '/home/hseo0618/src/all_results/hyun/CUB200_BYOT_Dropout_byot_resnet18__p0.5_t3.0_alpha0.1_beta0.1_B32_seed41_detachFalse'},
-        {'dataset': 'DOG', 'method': 'BYOT', 'type':  'drop', 'path': '/home/hseo0618/src/all_results/hyun/DOG_BYOT_Dropout_byot_resnet18__p0.5_t3.0_alpha0.1_beta0.1_B32_seed41_detachFalse'}, ]
+    [{'dataset': 'CIFAR100', 'method': 'BaseMethod', 'type':    'base', 
+         'path': 'saved_models/CIFAR100_BaseMethod_resnet18_cifar__B128_seed41'},
+     {'dataset': 'CUB200', 'method': 'BaseMethod', 'type':   'base',
+         'path': 'saved_models/_old/CUB200_BaseMethod_resnet18__B32_seed41'},
+     {'dataset': 'DOG', 'method': 'BaseMethod', 'type':   'base',
+         'path': 'saved_models/DOG_BaseMethod_resnet18__p0.5_t3.0_alpha0.1_beta1.0_B32_seed41_detachFalse'},
+     {'dataset': 'CIFAR100', 'method': 'BaseMethod', 'type': 'drop',
+         'path': 'saved_models/CIFAR100_SD_Dropout_resnet18_cifar__p0.5_t3.0_alpha1.0_beta1.0_B128_seed41_detachFalse'},
+     {'dataset': 'CUB200', 'method': 'BaseMethod', 'type':   'drop',
+         'path': 'saved_models/CUB200_SD_Dropout_resnet18__p0.5_t3.0_alpha1.0_beta1.0_B32_seed41_detachFalse'},
+     {'dataset': 'DOG', 'method': 'BaseMethod', 'type':   'drop',
+         'path': 'saved_models/DOG_SD_Dropout_resnet18__p0.5_t3.0_alpha1.0_beta1.0_B32_seed41_detachFalse'},
+     {'dataset': 'CIFAR100', 'method': 'CS_KD', 'type':    'base',
+         'path': 'saved_models/CIFAR100_CS_KD_resnet18_cifar__B128_seed41'},
+     {'dataset': 'CUB200', 'method': 'CS_KD', 'type':  'base',
+         'path': 'saved_models/CUB200_CS_KD_resnet18__B32_seed41'},
+     {'dataset': 'DOG', 'method': 'CS_KD', 'type':  'base',
+         'path': 'saved_models/DOG_CS_KD_resnet18__p0.5_t3.0_alpha0.1_beta1.0_B32_seed41_detachFalse'},
+     {'dataset': 'CIFAR100', 'method': 'CS_KD', 'type':    'drop',
+         'path': 'saved_models/CIFAR100_CS_KD_Dropout_resnet18_cifar__p0.5_t3.0_alpha0.1_B128_seed41'},
+     {'dataset': 'CUB200', 'method': 'CS_KD', 'type':  'drop',
+         'path': 'saved_models/CUB200_CS_KD_Dropout_resnet18__p0.5_t3.0_alpha0.1_B32_seed41'},
+     {'dataset': 'DOG', 'method': 'CS_KD', 'type':  'drop', 
+         'path': 'saved_models/DOG_CS_KD_Dropout_resnet18__p0.5_t3.0_alpha0.1_beta1.0_B32_seed41_detachFalse'}, 
+     {'dataset': 'CIFAR100', 'method': 'DDGSD', 'type':    'base',
+         'path': 'saved_models/CIFAR100_DDGSD_resnet18_cifar__B128_seed41'},
+     {'dataset': 'CUB200', 'method': 'DDGSD', 'type':  'base',
+         'path': 'saved_models/CUB200_DDGSD_resnet18__B32_seed41'},
+     {'dataset': 'DOG', 'method': 'DDGSD', 'type':  'base',
+         'path': 'saved_models/DOG_DDGSD_resnet18__p0.5_t3.0_alpha0.1_beta1.0_B32_seed41_detachFalse'},
+     {'dataset': 'CIFAR100', 'method': 'DDGSD', 'type':    'drop',
+         'path': 'saved_models/CIFAR100_DDGSD_Dropout_resnet18_cifar__p0.5_t3.0_alpha0.1_B128_seed41'},
+     {'dataset': 'CUB200', 'method': 'DDGSD', 'type':  'drop',
+         'path': 'saved_models/CUB200_DDGSD_Dropout_resnet18__p0.5_t3.0_alpha0.1_B32_seed41'},
+     {'dataset': 'DOG', 'method': 'DDGSD', 'type':  'drop', 
+         'path': 'saved_models/DOG_DDGSD_Dropout_resnet18__p0.5_t3.0_alpha0.1_beta1.0_B32_seed41_detachFalse'}, 
+         ]
 )
-exp_list = list(product(['CIFAR100', 'CUB200', 'DOG'], ['BYOT', 'DML']))
+
+# exp_df = pd.DataFrame.from_dict(
+#     [{'dataset': 'CIFAR100', 'method': 'BaseMethod', 'type':    'base', 
+#          'path': 'saved_models/CIFAR100_BaseMethod_resnet18_cifar__B128_seed41'},
+#      {'dataset': 'CIFAR100', 'method': 'BaseMethod', 'type':    'drop', 
+#          'path': 'saved_models/CIFAR100_Base_Dropout_resnet18_cifar__p0.5_t3.0_alpha1.0_beta1.0_B128_seed41_detachFalse'},
+#          ]
+# )
+
+exp_list = list(product(['CIFAR100', 'CUB200', 'DOG'], 
+                        ['BaseMethod', 'CS_KD', 'DDGSD']))
+
+# exp_list = list(product(['CIFAR100'], 
+#                         ['BaseMethod']))
 print(exp_list)
 
 print(exp_df)
@@ -62,12 +89,18 @@ class Args():
     path_base = ""
     # byot with self dropout
     path_drop = ""
+    t = 3.0
+    p = 0.5
+    alpha = 0.1
+    detach = False
 
 
 args = Args()
 
 result_list = []
 
+model_name_helper = {'BaseMethod':'SD_Dropout', 'CS_KD':'CS_KD_Dropout', 'DDGSD':'DDGSD_Dropout'}
+# model_name_helper = {'BaseMethod':'Base_Dropout', 'CS_KD':'CS_KD_Dropout', 'DDGSD':'DDGSD_Dropout'}
 
 for exp in exp_list:
     args.dataset = exp[0]
@@ -112,6 +145,9 @@ for exp in exp_list:
     backbone = resnet.__dict__[args.backbone](
         num_classes=num_classes[args.dataset])
     state_dict_drop = torch.load(args.path_drop)
+
+    args.method = model_name_helper[args.method]
+
     if args.method == 'DML':
         backbone2 = resnet.__dict__[args.backbone](
             num_classes=num_classes[args.dataset])
@@ -208,7 +244,7 @@ for exp in exp_list:
 
         attack = FastGradientMethod(estimator=classifier_drop, eps=0.2)
         x_test_adv = attack.generate(x=x_test)
-        predictions = classifier.predict(x_test_adv)
+        predictions = classifier_drop.predict(x_test_adv)
         Acc_drop_attacked.append(
             np.argmax(predictions, axis=1) == np.array(y_test))
 

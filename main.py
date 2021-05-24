@@ -1,5 +1,5 @@
 """
-2021-04-08
+2021-05-23
 Hyoje Lee
 
 python main.py --method BaseMethod      --backbone resnet18_cifar --seed 41
@@ -13,20 +13,19 @@ import time
 import argparse
 from typing import Dict, Tuple
 import torch
-from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 # custom packages
 from dataset import make_loader
 from utils import cal_num_parameters, set_args, do_seed, log_optim, AverageMeter, ProgressMeter, Logger
-from models import methods, resnet
-from models.methods import BaseMethod
+from models import methods
+import backbones
 
 METHOD_NAMES = [name for name in methods.__all__
                 if not name.startswith('__') and callable(methods.__dict__[name])]
-BACKBONE_NAMES = sorted(name for name in resnet.__all__
+BACKBONE_NAMES = sorted(name for name in backbones.__all__
                         if name.islower() and not name.startswith("__")
-                        and callable(resnet.__dict__[name]))
+                        and callable(backbones.__dict__[name]))
 
 
 def set_log(epochs: int, log_names=None) -> Tuple[Dict[str, AverageMeter], ProgressMeter]:
@@ -92,13 +91,6 @@ def parser_arg():
     parser.add_argument('--detach', dest='detach', action='store_true', help="detach or not when calculate KL loss using Dropout (default: False)")
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
 
-
-    ## debug
-    # args, _ = parser.parse_known_args('-g 0 --exp_name debug --seed 41 \
-    #                                    --backbone resnet18_cifar --method BaseMethod --dataset CIFAR100 \
-    #                                    --batch_size 128 --num_workers 4'.split())
-                                       
-    ## real
     args, _ = parser.parse_known_args()
 
     return set_args(args)
@@ -139,12 +131,12 @@ if __name__ == "__main__":
     print("init neural networks")
     ## construct the model
     num_classes = {'CIFAR10': 10, 'CIFAR100':100, 'CUB200':200, 'DOG':120}
-    backbone = resnet.__dict__[args.backbone](num_classes=num_classes[args.dataset])
-    model: BaseMethod   # type hint
+    backbone = backbones.__dict__[args.backbone](num_classes=num_classes[args.dataset])
+    model: methods.BaseMethod   # type hint
     if any(c in args.method for c in ['Base', 'KD', 'SD', 'BYOT']):
         model = methods.__dict__[args.method](args, backbone)
     elif any(c in args.method for c in ['DML']):
-        backbone2 = resnet.__dict__[args.backbone](num_classes=num_classes[args.dataset])
+        backbone2 = backbones.__dict__[args.backbone](num_classes=num_classes[args.dataset])
         backbone2.cuda()
         model = methods.__dict__[args.method](args, backbone, backbone2)
     else:
