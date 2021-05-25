@@ -34,7 +34,8 @@ __all__ = ['BaseMethod', 'SD_Dropout',
            'CS_KD_Dropout', 'DDGSD_Dropout',
             'BYOT', 'BYOT_Dropout',
             'DML', 'DML_Dropout','DML_Dropout_V1',
-            'Base_Dropout', 'Base_Dropout_v2']
+            'Base_Dropout', 'Base_Dropout_v2',
+            'BaseMethod_LS', 'SD_Dropout_LS']
 
 def kl_div_loss(pred: Tensor, target: Tensor, t: float = 3.0) -> Tensor:
     """
@@ -525,3 +526,32 @@ class Base_Dropout_v2(BaseMethod):
         losses['loss_total'] += self.alpha*loss_dropout
 
         return losses, None
+
+class LabelSmoothingCrossEntropy(nn.Module):
+    def __init__(self):
+        super(LabelSmoothingCrossEntropy, self).__init__()
+
+    def forward(self, x, target, smoothing=0.1):
+        confidence = 1. - smoothing
+        logprobs = F.log_softmax(x, dim=-1)
+        nll_loss = -logprobs.gather(dim=-1, index=target.unsqueeze(1))
+        nll_loss = nll_loss.squeeze(1)
+        smooth_loss = -logprobs.mean(dim=-1)
+        loss = confidence * nll_loss + smoothing * smooth_loss
+        return loss.mean()
+
+class BaseMethod_LS(BaseMethod):
+    def __init__(self, args, backbone: Module) -> None:
+        super().__init__(args, backbone)
+
+    def set_optimizer(self) -> None:
+        super().set_optimizer()
+        self.criterion_ce = LabelSmoothingCrossEntropy()
+        
+class SD_Dropout_LS(SD_Dropout):
+    def __init__(self, args, backbone: Module) -> None:
+        super().__init__(args, backbone)
+
+    def set_optimizer(self) -> None:
+        super().set_optimizer()
+        self.criterion_ce = LabelSmoothingCrossEntropy()
