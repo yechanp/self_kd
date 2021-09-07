@@ -17,16 +17,15 @@
 # 2021-04-08 by Hyoje
 #-------------------------------------
 
-from typing import Dict, List, Callable, Union, Any, Tuple
+from typing import Dict, List, Any, Tuple
 from torch import Tensor
 from torch.nn import Module
+from torch import optim
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import time
-import re
-import math
 from utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedulers
 
 __all__ = ['BaseMethod', 'SD_Dropout', 
@@ -35,9 +34,9 @@ __all__ = ['BaseMethod', 'SD_Dropout',
             'BYOT', 'BYOT_Dropout',
             'DML', 'DML_Dropout','DML_Dropout_V1',
             'Base_Dropout', 'Base_Dropout_v2',
-            'BaseMethod_LS', 'SD_Dropout_LS']
+            'BaseMethod_LS', 'SD_Dropout_LS', 'SD_Dropout_uncertainty']
 
-def kl_div_loss(pred: Tensor, target: Tensor, t: float = 3.0) -> Tensor:
+def kl_div_loss(pred: Tensor, target: Tensor, t: float = 3.0, reduction: str = 'batchmean') -> Tensor:
     """
     Calculate KL Divergence Loss.
     Args:
@@ -50,7 +49,7 @@ def kl_div_loss(pred: Tensor, target: Tensor, t: float = 3.0) -> Tensor:
     x_log = F.log_softmax(pred/t, dim=1)
     y = F.softmax(target/t, dim=1)
     
-    return F.kl_div(x_log, y, reduction='batchmean')
+    return F.kl_div(x_log, y, reduction=reduction)
 
 def make_feature_vector(x: Tensor) -> Tensor:
     """
@@ -99,7 +98,8 @@ class BaseMethod(nn.Module):
 
     def set_optimizer(self) -> None:
         self.criterion_ce = nn.CrossEntropyLoss()
-        optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
+        # optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
         lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
         self.optimizer = MultipleOptimizer([optimizer])
         self.lr_scheduler = MultipleSchedulers([lr_scheduler])
@@ -202,6 +202,65 @@ class SD_Dropout(BaseMethod):
         # total loss
         losses['loss_kl'] = loss_kl
         losses['loss_total'] += self.alpha*loss_kl
+
+        return losses, None
+
+class SD_Dropout_uncertainty(BaseMethod):
+    def __init__(self, args, backbone: Module) -> None:
+        super().__init__(args, backbone)
+        self.T = args.t
+        self.P = args.p
+        self.detach = args.detach
+        self.register_parameter("log_var_1", torch.nn.Parameter(torch.FloatTensor([2])))
+        self.register_parameter("log_var_2", torch.nn.Parameter(torch.FloatTensor([0])))
+        self.alpha = torch.exp(-self.log_var_1)
+        self.beta = torch.exp(-self.log_var_2)
+        
+        self.set_optimizer()
+
+    def set_optimizer(self) -> None:
+        self.criterion_ce = nn.CrossEntropyLoss()
+        # optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
+        optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=1e-4)
+        lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
+        self.optimizer = MultipleOptimizer([optimizer])
+        self.lr_scheduler = MultipleSchedulers([lr_scheduler])
+
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
+        outputs, feats = self.backbone(x, return_feat=True)
+        loss_ce = F.cross_entropy(outputs, y, reduction='mean')
+        feature_vector = make_feature_vector(feats[-1])
+        
+        # dropout only last feature
+        feats_dp = [F.dropout(feature_vector, p=self.P) for _ in range(2)]
+        output_dp1, output_dp2 = [self.backbone.fc(feats_dp[j]) for j in range(2)]
+
+        # uncertainty
+        self.alpha = torch.exp(-self.log_var_1)
+        self.beta = torch.exp(-self.log_var_2)
+        # self.T = self.alpha**(-1)
+        
+        # KL Divergence
+        if not self.detach:     # no detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2, t=self.T, reduction='batchmean')
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1, t=self.T, reduction='batchmean')
+        else:                   # detach
+            loss_kl_dp1 = kl_div_loss(output_dp1, output_dp2.detach(), t=self.T, reduction='batchmean')
+            loss_kl_dp2 = kl_div_loss(output_dp2, output_dp1.detach(), t=self.T, reduction='batchmean')
+        loss_kl = loss_kl_dp1 + loss_kl_dp2
+
+        loss_total = loss_ce*self.beta + self.log_var_2 + loss_kl.sum(-1)*self.alpha + self.log_var_1
+        loss_total = loss_total.mean()
+
+        # total loss
+        losses = {}
+        losses['loss_ce'] = loss_ce
+        losses['loss_kl'] = loss_kl
+        losses['loss_total'] = loss_total
+        losses['log_var_1'] = self.log_var_1
+        losses['log_var_2'] = self.log_var_2
+        losses['alpha'] = self.alpha
+        losses['beta'] = self.beta
 
         return losses, None
 
