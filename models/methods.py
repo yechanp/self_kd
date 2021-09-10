@@ -99,7 +99,7 @@ class BaseMethod(nn.Module):
     def set_optimizer(self) -> None:
         self.criterion_ce = nn.CrossEntropyLoss()
         # optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+        optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=1e-4)
         lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
         self.optimizer = MultipleOptimizer([optimizer])
         self.lr_scheduler = MultipleSchedulers([lr_scheduler])
@@ -211,20 +211,12 @@ class SD_Dropout_uncertainty(BaseMethod):
         self.T = args.t
         self.P = args.p
         self.detach = args.detach
-        self.register_parameter("log_var_1", torch.nn.Parameter(torch.FloatTensor([2])))
+        self.register_parameter("log_var_1", torch.nn.Parameter(torch.FloatTensor([4])))
         self.register_parameter("log_var_2", torch.nn.Parameter(torch.FloatTensor([0])))
         self.alpha = torch.exp(-self.log_var_1)
         self.beta = torch.exp(-self.log_var_2)
         
         self.set_optimizer()
-
-    def set_optimizer(self) -> None:
-        self.criterion_ce = nn.CrossEntropyLoss()
-        # optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
-        optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=1e-4)
-        lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
-        self.optimizer = MultipleOptimizer([optimizer])
-        self.lr_scheduler = MultipleSchedulers([lr_scheduler])
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
         outputs, feats = self.backbone(x, return_feat=True)
