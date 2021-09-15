@@ -85,6 +85,8 @@ def parser_arg():
                                                                                                                      ' | '.join(BACKBONE_NAMES)+
                                                                                                                      ' (default: resnet18)')
     parser.add_argument('--epochs', type=int, default=200, metavar='N', help="epoch (default: 200)")
+    parser.add_argument('--optim', type=str, default='sgd', help="Adam or SGD (default: SGD)")
+    parser.add_argument('--wd', type=float, default=1e-4, help="weight decay (default: 1e-4)")
     parser.add_argument('--batch_size', type=int, default=128, metavar='N', help="batch size (default: 128)")
     parser.add_argument('-t', type=float, default=3.0, help="temperature (default: 3.0)")
     parser.add_argument('-p', type=float, default=0.5, help="the probability of dropout (default: 0.5)")

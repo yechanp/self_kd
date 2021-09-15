@@ -27,6 +27,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import time
 from utils.utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedulers
+from utils.config import Config
 
 __all__ = ['BaseMethod', 'SD_Dropout', 
            'CS_KD', 'DDGSD',
@@ -68,7 +69,7 @@ def make_feature_vector(x: Tensor) -> Tensor:
 class BaseMethod(nn.Module):
     """
     """
-    def __init__(self, args, backbone: nn.Module) -> None:
+    def __init__(self, args: Config, backbone: nn.Module) -> None:
         super().__init__()
         self.args = args
         self.backbone = backbone
@@ -98,9 +99,11 @@ class BaseMethod(nn.Module):
 
     def set_optimizer(self) -> None:
         self.criterion_ce = nn.CrossEntropyLoss()
-        # optimizer = torch.optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
-        optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=1e-4)
-        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
+        if self.args.optim == 'sgd':
+            optimizer = optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=self.args.wd)
+        elif self.args.optim == 'adam':
+            optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=self.args.wd)
+        lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
         self.optimizer = MultipleOptimizer([optimizer])
         self.lr_scheduler = MultipleSchedulers([lr_scheduler])
 

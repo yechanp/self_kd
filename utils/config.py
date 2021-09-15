@@ -21,6 +21,8 @@ class Config(object):
         self.method: str = args.method
         self.backbone: str = args.backbone
         self.epochs: int = args.epochs
+        self.optim: str = args.optim.lower()
+        self.wd: float = args.wd
         self.batch_size: int = args.batch_size
         self.t: float = args.t
         self.p: float = args.p
@@ -39,8 +41,10 @@ class Config(object):
             't': 't',
             'alpha': 'alpha',
             'beta': 'beta',
-            'seed': 'seed',
+            'wd': 'wd',
+            'optim': '',
             'detach': 'detach',
+            'seed': 'seed',
 
             # 'lr': 'Lr',
             # 'lr_schedule': 'LR_Schedule_',
