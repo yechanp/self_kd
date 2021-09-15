@@ -17,7 +17,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 # custom packages
 from dataset import make_loader
-from utils import cal_num_parameters, set_args, do_seed, log_optim, AverageMeter, ProgressMeter, Logger
+from utils.utils import cal_num_parameters, do_seed, log_optim, AverageMeter, ProgressMeter, Logger
+from utils.config import Config
 from models import methods
 import backbones
 
@@ -94,7 +95,7 @@ def parser_arg():
 
     args, _ = parser.parse_known_args()
 
-    return set_args(args)
+    return Config(args)
 
 if __name__ == "__main__":
         
@@ -112,21 +113,21 @@ if __name__ == "__main__":
     # random seed
     if args.seed:    
         do_seed(args.seed)
-        logger.log(f'The fixed seed number is {args.seed}')
+        logger(f'The fixed seed number is {args.seed}')
 
     ############### Load Data ###############
     if 'CS_KD' in args.method:
         trainloader, testloader = make_loader(args.dataset, batch_size=args.batch_size, aug=args.aug, 
                                               sampler='CS_KD', num_workers=args.num_workers)
-        logger.log('Dataset for Class-wise Self KD')
+        logger('Dataset for Class-wise Self KD')
     elif 'DDGSD' in args.method:
         trainloader, testloader = make_loader(args.dataset, batch_size=args.batch_size, aug=args.aug, 
                                               sampler='DDGSD', num_workers=args.num_workers)
-        logger.log('Dataset for Data Distortion Guided Self Distillation')
+        logger('Dataset for Data Distortion Guided Self Distillation')
     else:
         trainloader, testloader = make_loader(args.dataset, batch_size=args.batch_size, aug=args.aug,
                                               num_workers=args.num_workers)
-        logger.log('Dataset for the method without sampler')
+        logger('Dataset for the method without sampler')
 
     ############### Define Model ###############
     print("init neural networks")
@@ -141,7 +142,7 @@ if __name__ == "__main__":
         backbone2.cuda()
         model = methods.__dict__[args.method](args, backbone, backbone2)
     else:
-        logger.log(f'{args.method} is not available')
+        logger(f'{args.method} is not available')
         raise NotImplementedError()
 
     if torch.cuda.is_available():
@@ -151,8 +152,8 @@ if __name__ == "__main__":
     if args.resume:
         state = torch.load(args.resume)
         epoch_init = state['epoch']
-        logger.log(f'Re-Training, Load Model {args.resume}')
-        logger.log(f'Load at epoch {epoch_init}')
+        logger(f'Re-Training, Load Model {args.resume}')
+        logger(f'Load at epoch {epoch_init}')
         model.load_state_dict(state['state_dict'])
         model.optimizer.load_state_dict(state['optimizer'])
         epoch_init += 1
@@ -178,7 +179,7 @@ if __name__ == "__main__":
         
         ## log
         meters, progress = update_log(loss_meters, meters, progress, writer, eval_acc)
-        logger.log(progress.display(epoch), consol=False)
+        logger(progress.display(epoch), consol=False)
 
         ## save
         state = {'args' : args,
@@ -189,7 +190,7 @@ if __name__ == "__main__":
         if max_acc < eval_acc:
             max_acc = eval_acc
             filename = os.path.join(args.save_folder, 'checkpoint_best.pth.tar')
-            logger.log('#'*20+'Save Best Model'+'#'*20)
+            logger('#'*20+'Save Best Model'+'#'*20)
             # torch.save(state, filename)
         
         end = time.time()
