@@ -5,7 +5,7 @@ __pycache__
 *.cpython-36.pyc
 .ipynb_checkpoints
 .vscode
-*.sh
+# *.sh
 *.json
 
 ## folder

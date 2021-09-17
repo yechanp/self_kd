@@ -22,6 +22,7 @@ class Config(object):
         self.backbone: str = args.backbone
         self.epochs: int = args.epochs
         self.optim: str = args.optim.lower()
+        self.lr: float = args.lr
         self.wd: float = args.wd
         self.batch_size: int = args.batch_size
         self.t: float = args.t
@@ -35,43 +36,35 @@ class Config(object):
 
         # hyper-params
         self.hyper_param = {
+            'dataset': '',
             'method': '',
             'batch_size': 'B',
-            'p': 'p',
-            't': 't',
-            'alpha': 'alpha',
-            'beta': 'beta',
-            'wd': 'wd',
             'optim': '',
-            'detach': 'detach',
-            'seed': 'seed',
-
-            # 'lr': 'Lr',
-            # 'lr_schedule': 'LR_Schedule_',
-            # 'weight_decay': 'WD',
+            'lr': 'Lr',
+            'wd': 'wd',
         }
 
-        # if self.method == 'posenet':
-        #     self.hyper_param.update(
-        #         {
-        #             'backbone': '',
-        #             'model_type': '',
-        #             'output_shape': 'Osize',
-        #             'deconv_layer_num': 'DeconvN',
-        #         }
-        #     )
-        # elif self.method == 'unipose':
-        #     self.hyper_param.update(
-        #         {
-        #             'pretrained_name': '',
-        #         }
-        #     )
+        if 'Dropout' in self.method:
+            self.hyper_param.update({
+                'p': 'p',
+                't': 't',
+                'detach': 'detach',
+            })
 
-        ## type hint
-        # self.logfile: str
-        # self.save_folder: str
-        # self.tb_folder: str
-        self.logger: Logger
+        if not 'uncertainty' in self.method:
+            self.hyper_param.update({
+                'alpha': 'alpha',
+                'beta': 'beta',
+            })
+
+        if 'resnet18' not in self.backbone:
+            self.hyper_param.update({
+                'backbone': '',
+            })
+
+        self.hyper_param.update({
+            'seed': 'seed',
+        })
 
         self.build()
 
@@ -89,8 +82,13 @@ class Config(object):
     def build(self):
         """ 
         expname 재정의 
+        method, dataset, backbone 일치
         log/tb dir 만들기
         """
+        if 'BYOT' in self.method and 'byot' not in self.backbone:
+            self.backbone = 'byot_' + self.backbone
+        if 'CIFAR' in self.dataset and 'cifar' not in self.backbone:
+            self.backbone = self.backbone + '_cifar'
 
         for k, v in self.hyper_param.items():
             self.exp_name += f"_{v}{self.__getattribute__(k)}"

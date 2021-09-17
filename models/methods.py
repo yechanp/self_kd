@@ -100,9 +100,9 @@ class BaseMethod(nn.Module):
     def set_optimizer(self) -> None:
         self.criterion_ce = nn.CrossEntropyLoss()
         if self.args.optim == 'sgd':
-            optimizer = optim.SGD(self.parameters(), lr=0.1, momentum=0.9, weight_decay=self.args.wd)
+            optimizer = optim.SGD(self.parameters(), lr=self.args.lr, momentum=0.9, weight_decay=self.args.wd)
         elif self.args.optim == 'adam':
-            optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=self.args.wd)
+            optimizer = optim.Adam(self.parameters(), lr=self.args.lr, weight_decay=self.args.wd)
         lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
         self.optimizer = MultipleOptimizer([optimizer])
         self.lr_scheduler = MultipleSchedulers([lr_scheduler])
