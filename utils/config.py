@@ -24,11 +24,14 @@ class Config(object):
         self.optim: str = args.optim.lower()
         self.lr: float = args.lr
         self.wd: float = args.wd
+        self.wd_only_log: float = args.wd_only_log
         self.batch_size: int = args.batch_size
         self.t: float = args.t
         self.p: float = args.p
-        self.alpha: float = args.alpha
-        self.beta: float = args.beta
+        self.w_sd_dropout: float = args.w_sd_dropout
+        self.w_self_kd: float = args.w_self_kd
+        self.init_var_sd: float = args.init_var_sd
+        self.init_var_ce: float = args.init_var_ce
         self.detach: bool = args.detach
         self.aug: bool = args.aug
 
@@ -40,21 +43,33 @@ class Config(object):
             'method': '',
             'batch_size': 'B',
             'optim': '',
-            'lr': 'Lr',
-            'wd': 'wd',
+            'lr': 'LR',
+            'wd': 'WD',
         }
-
-        if 'Dropout' in self.method:
+        
+        if not 'Base' in self.method:
             self.hyper_param.update({
-                'p': 'p',
-                't': 't',
-                'detach': 'detach',
+                't': 'T',
+                'w_self_kd': 'Lambda_SelfKD',
             })
 
-        if not 'uncertainty' in self.method:
+        if 'Dropout' in self.method:
+            if 'uncertainty' in self.method:
+                self.hyper_param.pop('w_self_kd', None)
+                self.hyper_param.update({
+                    'init_var_sd': 'InitVar_SD',
+                    'init_var_ce': 'CE',
+                    'wd_only_log': 'WDOnlyLog'
+                })
+
+            else:
+                self.hyper_param.update({
+                    'w_sd_dropout': 'Lambda_SDD',
+                })
+
             self.hyper_param.update({
-                'alpha': 'alpha',
-                'beta': 'beta',
+                'p': 'P',
+                'detach': 'Detach',
             })
 
         if 'resnet18' not in self.backbone:
@@ -63,7 +78,7 @@ class Config(object):
             })
 
         self.hyper_param.update({
-            'seed': 'seed',
+            'seed': 'SEED',
         })
 
         self.build()

@@ -66,7 +66,7 @@ def update_log(loss_meters: Dict[str, AverageMeter],
     return meters, progress
 
 # deal with params
-def parser_arg():
+def parser_arg() -> Config:
     parser = argparse.ArgumentParser()
     ## 
     parser.add_argument('--exp_name', type=str, default='', help="the name of experiment")
@@ -88,11 +88,14 @@ def parser_arg():
     parser.add_argument('--optim', type=str, default='sgd', help="Adam or SGD (default: SGD)")
     parser.add_argument('--lr', type=float, default=0.1, help="init learning rate (default: 0.1)")
     parser.add_argument('--wd', type=float, default=1e-4, help="weight decay (default: 1e-4)")
+    parser.add_argument('--wd_only_log', type=float, default=0.1, help="weight decay (default: 0.1)")
     parser.add_argument('--batch_size', type=int, default=128, metavar='N', help="batch size (default: 128)")
     parser.add_argument('-t', type=float, default=3.0, help="temperature (default: 3.0)")
     parser.add_argument('-p', type=float, default=0.5, help="the probability of dropout (default: 0.5)")
-    parser.add_argument('--alpha', type=float, default=0.1, help="the weight for SD_Dropout loss (default: 0.1)")
-    parser.add_argument('--beta', type=float, default=1.0, help="the weight for the method loss (default: 1.0)")
+    parser.add_argument('--w_sd_dropout', type=float, default=0.1, help="the weight for SD_Dropout loss (default: 0.1)")
+    parser.add_argument('--w_self_kd', type=float, default=1.0, help="the weight for the method loss (default: 1.0)")
+    parser.add_argument('--init_var_sd', type=float, default=4.0, help="the initial variance in uncertainty (default: 4.0)")
+    parser.add_argument('--init_var_ce', type=float, default=0.0, help="the initial variance in uncertainty (default: 0.0)")
     parser.add_argument('--detach', dest='detach', action='store_true', help="detach or not when calculate KL loss using Dropout (default: False)")
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
 
