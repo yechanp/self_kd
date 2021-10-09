@@ -84,7 +84,7 @@ def parser_arg() -> Config:
     parser.add_argument('--backbone', type=str, default='resnet18_cifar', metavar='BACKBONE', choices=BACKBONE_NAMES, help='Backbone models: '+
                                                                                                                      ' | '.join(BACKBONE_NAMES)+
                                                                                                                      ' (default: resnet18)')
-    parser.add_argument('--epochs', type=int, default=200, metavar='N', help="epoch (default: 200)")
+    parser.add_argument('--epochs', type=int, default=100, metavar='N', help="epoch (default: 100)")
     parser.add_argument('--optim', type=str, default='sgd', help="Adam or SGD (default: SGD)")
     parser.add_argument('--lr', type=float, default=0.1, help="init learning rate (default: 0.1)")
     parser.add_argument('--wd', type=float, default=1e-4, help="weight decay (default: 1e-4)")

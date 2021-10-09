@@ -9,6 +9,7 @@ __pycache__
 *.json
 
 ## folder
+_old
 saved_models/*
 tb_results/*
 dataset/*

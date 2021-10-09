@@ -32,10 +32,10 @@ from utils.config import Config
 __all__ = ['BaseMethod', 'SD_Dropout', 
            'CS_KD', 'DDGSD',
            'CS_KD_Dropout', 'DDGSD_Dropout',
-            'BYOT', 'BYOT_Dropout',
-            'DML', 'DML_Dropout','DML_Dropout_V1',
-            'Base_Dropout', 'Base_Dropout_v2',
-            'BaseMethod_LS', 'SD_Dropout_LS', 'SD_Dropout_uncertainty']
+           'BYOT', 'BYOT_Dropout',
+           'DML', 'DML_Dropout','DML_Dropout_V1',
+           'Base_Dropout', 'Base_Dropout_v2',
+           'BaseMethod_LS', 'SD_Dropout_LS', 'SD_Dropout_uncertainty']
 
 def kl_div_loss(pred: Tensor, target: Tensor, t: float = 3.0, reduction: str = 'batchmean') -> Tensor:
     """
@@ -103,7 +103,8 @@ class BaseMethod(nn.Module):
             optimizer = optim.SGD(self.parameters(), lr=self.args.lr, momentum=0.9, weight_decay=self.args.wd)
         elif self.args.optim == 'adam':
             optimizer = optim.Adam(self.parameters(), lr=self.args.lr, weight_decay=self.args.wd)
-        lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
+        # lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
+        lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 75], gamma=0.1)
         self.optimizer = MultipleOptimizer([optimizer])
         self.lr_scheduler = MultipleSchedulers([lr_scheduler])
 
@@ -233,7 +234,8 @@ class SD_Dropout_uncertainty(BaseMethod):
                 {'params':[param for key, param in self.named_parameters() if 'log' not in key]},
                 {'params':[param for key, param in self.named_parameters() if 'log' in key], 'weight_decay': self.args.wd_only_log}
             ], lr=self.args.lr, weight_decay=self.args.wd)
-        lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
+        # lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
+        lr_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 75], gamma=0.1)
         self.optimizer = MultipleOptimizer([optimizer])
         self.lr_scheduler = MultipleSchedulers([lr_scheduler])
 
