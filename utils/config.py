@@ -25,7 +25,7 @@ class Config(object):
         self.lr: float = args.lr
         self.wd: float = args.wd
         self.wd_only_log: float = args.wd_only_log
-        self.batch_size: int = args.batch_size
+        # self.batch_size: int = args.batch_size
         self.t: float = args.t
         self.p: float = args.p
         self.w_sd_dropout: float = args.w_sd_dropout
@@ -104,6 +104,9 @@ class Config(object):
             self.backbone = 'byot_' + self.backbone
         if 'CIFAR' in self.dataset and 'cifar' not in self.backbone:
             self.backbone = self.backbone + '_cifar'
+            self.batch_size = 128
+        else:
+            self.batch_size = 32
 
         for k, v in self.hyper_param.items():
             self.exp_name += f"_{v}{self.__getattribute__(k)}"

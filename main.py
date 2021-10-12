@@ -89,7 +89,7 @@ def parser_arg() -> Config:
     parser.add_argument('--lr', type=float, default=0.1, help="init learning rate (default: 0.1)")
     parser.add_argument('--wd', type=float, default=1e-4, help="weight decay (default: 1e-4)")
     parser.add_argument('--wd_only_log', type=float, default=0.1, help="weight decay (default: 0.1)")
-    parser.add_argument('--batch_size', type=int, default=128, metavar='N', help="batch size (default: 128)")
+    # parser.add_argument('--batch_size', type=int, default=128, metavar='N', help="batch size (default: 128)")
     parser.add_argument('-t', type=float, default=3.0, help="temperature (default: 3.0)")
     parser.add_argument('-p', type=float, default=0.5, help="the probability of dropout (default: 0.5)")
     parser.add_argument('--w_sd_dropout', type=float, default=0.1, help="the weight for SD_Dropout loss (default: 0.1)")

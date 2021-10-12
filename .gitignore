@@ -7,6 +7,8 @@ __pycache__
 .vscode
 *.sh
 *.json
+*.csv
+*.ipynb
 
 ## folder
 _old
