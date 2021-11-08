@@ -53,7 +53,12 @@ class Config(object):
                 'w_self_kd': 'Lambda_SelfKD',
             })
 
-        if 'Dropout' in self.method:
+        if 'Base_Dropout' in self.method:
+            if 'v2' in self.method:
+                self.hyper_param.update({
+                    'w_self_kd': 'Lambda_Dropout',
+                })
+        elif 'Dropout' in self.method:
             if 'uncertainty' in self.method:
                 self.hyper_param.pop('w_self_kd', None)
                 self.hyper_param.update({

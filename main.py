@@ -8,7 +8,7 @@ python main.py --method CS_KD_Dropout   --backbone resnet18_cifar --seed 41
 
 """
 # imports base packages
-import os
+import os, sys
 import time
 import argparse
 from typing import Dict, Tuple
@@ -114,6 +114,7 @@ if __name__ == "__main__":
 
     # logger
     logger = Logger(args.logfile)
+    logger(' '.join(sys.argv))
     logger.print_args(args)
 
     # random seed

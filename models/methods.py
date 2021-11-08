@@ -552,11 +552,13 @@ class DML_Dropout_V1(DML):
         return losses, None
 
 class Base_Dropout(BaseMethod):
+    """
+    Only Dropout
+    """
     def __init__(self, args: Config, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.T = args.t
         self.P = args.p
-        self.alpha = args.alpha
         self.detach = args.detach
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
@@ -571,16 +573,19 @@ class Base_Dropout(BaseMethod):
         # total loss
         losses = {}
         losses['loss_dropout'] = loss_dropout
-        losses['loss_total'] = self.alpha*loss_dropout
+        losses['loss_total'] = loss_dropout
 
         return losses, None
 
 class Base_Dropout_v2(BaseMethod):
+    """
+    Additional Dropout
+    """
     def __init__(self, args: Config, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.T = args.t
         self.P = args.p
-        self.alpha = args.alpha
+        self.w_dropout = args.w_self_kd
         self.detach = args.detach
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
@@ -594,7 +599,7 @@ class Base_Dropout_v2(BaseMethod):
 
         # total loss
         losses['loss_dropout'] = loss_dropout
-        losses['loss_total'] += self.alpha*loss_dropout
+        losses['loss_total'] += self.w_dropout*loss_dropout
 
         return losses, None
 
