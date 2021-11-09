@@ -9,6 +9,7 @@ __pycache__
 *.json
 *.csv
 *.ipynb
+*.bat
 
 ## folder
 _old

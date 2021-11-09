@@ -81,7 +81,7 @@ def parser_arg() -> Config:
     parser.add_argument('--method', type=str, default='BaseMethod', metavar='METHOD', choices=METHOD_NAMES, help='model_names: '+
                                                                                                            ' | '.join(METHOD_NAMES)+
                                                                                                            ' (defualt: BaseMethod)')
-    parser.add_argument('--backbone', type=str, default='resnet18_cifar', metavar='BACKBONE', choices=BACKBONE_NAMES, help='Backbone models: '+
+    parser.add_argument('--backbone', type=str, default='resnet18', metavar='BACKBONE', choices=BACKBONE_NAMES, help='Backbone models: '+
                                                                                                                      ' | '.join(BACKBONE_NAMES)+
                                                                                                                      ' (default: resnet18)')
     parser.add_argument('--epochs', type=int, default=100, metavar='N', help="epoch (default: 100)")
