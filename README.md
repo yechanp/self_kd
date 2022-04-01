@@ -1,5 +1,5 @@
 # Self Knowledge Distillation
-2021-04-10
+2022-04-01
 
 ## /models/method.py
 
@@ -16,7 +16,6 @@ make_feature_vector(feats[-1])을 이용하여 마지막 layer의 feature를 구
 
 CS_KD_Dropout, DDGSD_Dropout를 참고하세요
 
-BYOT는 서현 님이 작성하여 위의 method들과 구조가 다릅니다. 곧 통일해보겠습니다.
 
 ## /main.py
 
@@ -42,13 +41,13 @@ CIFAR dataset의 경우, **반드시 resnet18_cifar 사용**.
 --backbone [resnet18, resnet18_cifar]
 ```
 
-## Loss with alpha, beta
+## Loss with lam_sdd, lam_kd
 기본적으로   
 ```
-loss = ce_loss + alpha*KL_Dropout_loss + beta*Method_loss    
+loss = ce_loss + lam_sdd*SD_Dropout_loss + lam_kd*Method_loss    
 ```
-입니다. 여기서 **beta는 원래의 lambda와 같습니다**.
+입니다.
 
-CS_KD_Dropout의 경우, alpha=0.1, beta=1.0으로   
-loss = ce_loss + 0.1\*KL_Dropout_loss + 1.0\*Method_loss    
+CS_KD_Dropout의 경우, lam_sdd=0.1, lam_kd=1.0으로   
+loss = ce_loss + 0.1\*SD_Dropout_loss + 1.0\*Method_loss    
 입니다.

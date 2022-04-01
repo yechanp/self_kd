@@ -87,11 +87,14 @@ class Logger():
         for key in args.__dict__.keys():
             self.log(f'{key} : {args.__dict__[key]}')
     
-    def log(self, text : str, consol : bool = True) -> None:
+    def log(self, text: str, consol: bool = True) -> None:
         with open(self.logfile, 'a') as f:
             print(text, file=f)
         if consol:
             print(text)
+
+    def __call__(self, text: str, consol: bool = True) -> None:
+        self.log(text, consol)
 
 class MultipleOptimizer():
     def __init__(self, op: List[Optimizer]) -> None:
@@ -125,40 +128,10 @@ class MultipleSchedulers():
             sch.step()
 
 def log_optim(optimizers: MultipleOptimizer, schedulers: MultipleSchedulers, logger: Logger) -> None:
-    logger.log(optimizers.optimizers)
+    logger(optimizers.optimizers)
     for sche in schedulers.schedulers:    
-        logger.log("milestones : " + str(dict(sche.milestones)))
-        logger.log("gamma : " + str(sche.gamma))
-
-def set_args(args):
-    ## experiment name
-    args.exp_name = f'{args.dataset}_{args.method}_{args.backbone}_{args.exp_name}'
-    # if args.p != 0.5: args.exp_name += f'_p{args.p}'
-    args.exp_name += f'_p{args.p}_t{args.t}_alpha{args.alpha}'
-    args.exp_name += f'_beta{args.beta}'
-    args.exp_name += f'_B{args.batch_size}'
-    if args.seed: args.exp_name += f'_seed{args.seed}'
-    args.exp_name += f'_detach{args.detach}'
-    ## directory
-    args.save_folder = os.path.join('saved_models', args.exp_name)
-    args.tb_folder = os.path.join('tb_results', args.exp_name)
-    if os.path.exists(args.save_folder) or os.path.exists(args.tb_folder):
-        print(f"Current Experiment is : {args.exp_name}")
-        isdelete = input("delete exist exp dir (y/n): ")
-        if isdelete == "y":
-            if os.path.exists(args.save_folder): shutil.rmtree(args.save_folder) 
-            if os.path.exists(args.tb_folder):   shutil.rmtree(args.tb_folder) 
-        elif isdelete == "n":
-            raise FileExistsError
-        else:
-            raise FileExistsError
-
-    os.makedirs(args.save_folder, exist_ok=True)
-    os.makedirs(args.tb_folder, exist_ok=True)
-    ## logfile
-    args.logfile = os.path.join(args.save_folder, 'log.txt')
-    
-    return args
+        logger("milestones : " + str(dict(sche.milestones)))
+        logger("gamma : " + str(sche.gamma))
 
 def do_seed(seed_num, cudnn_ok=True):
     random.seed(seed_num)

@@ -1,5 +1,5 @@
 #-------------------------------------
-# loss_total = ce_loss + beta*method_loss + alpha*dropout_kl_loss
+# loss_total = ce_loss + lam_kd*method_loss + lam_sdd*dropout_kl_loss
 # KL Divergence Loss는 kl_div_loss라는 funtion으로 구현.
 # 
 # 기본적으로 BaseMethod class를 상속받아서 method를 구현하면 됩니다.
@@ -12,12 +12,10 @@
 # 
 # CS_KD_Dropout, DDGSD_Dropout를 참고하세요
 # 
-# BYOT는 서현 님이 작성하여 위의 method들과 구조가 다릅니다. 곧 통일해보겠습니다.
-# 
-# 2021-04-08 by Hyoje
+# 2022-04-01 by Hyoje
 #-------------------------------------
 
-from typing import Dict, List, Callable, Union, Any, Tuple
+from typing import Dict, List, Any, Tuple
 from torch import Tensor
 from torch.nn import Module
 
@@ -25,11 +23,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import time
-import re
-import math
-from utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedulers
+from utils.config import Config
+from utils.utils import AverageMeter, ProgressMeter, MultipleOptimizer, MultipleSchedulers
 
-__all__ = ['BaseMethod', 'SD_Dropout', 
+__all__ = ['BaseMethod', 'SD_Dropout', 'SD_Dropout_v2',
            'CS_KD', 'DDGSD',
            'CS_KD_Dropout', 'DDGSD_Dropout',
             'BYOT', 'BYOT_Dropout',
@@ -69,7 +66,7 @@ def make_feature_vector(x: Tensor) -> Tensor:
 class BaseMethod(nn.Module):
     """
     """
-    def __init__(self, args, backbone: nn.Module) -> None:
+    def __init__(self, args: Config, backbone: nn.Module) -> None:
         super().__init__()
         self.args = args
         self.backbone = backbone
@@ -176,11 +173,11 @@ class BaseMethod(nn.Module):
         return 100*correct/total
 
 class SD_Dropout(BaseMethod):
-    def __init__(self, args, backbone: Module) -> None:
+    def __init__(self, args: Config, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.T = args.t
         self.P = args.p
-        self.alpha = args.alpha
+        self.lam_sdd = args.lam_sdd
         self.detach = args.detach
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
@@ -201,14 +198,47 @@ class SD_Dropout(BaseMethod):
 
         # total loss
         losses['loss_kl'] = loss_kl
-        losses['loss_total'] += self.alpha*loss_kl
+        losses['loss_total'] += self.lam_sdd*loss_kl
+
+        return losses, None
+
+class SD_Dropout_v2(BaseMethod):
+    """
+    Consider dropped feature as Teacher, original feature as Student.
+    """
+    def __init__(self, args: Config, backbone: Module) -> None:
+        super().__init__(args, backbone)
+        self.T = args.t
+        self.P = args.p
+        self.lam_sdd = args.lam_sdd
+        self.detach = args.detach
+
+    def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
+        losses, feature_vector = super().calculate_loss(x, y)
+        # original output
+        output = self.backbone.fc(feature_vector)
+        
+        # dropout only last feature
+        feats_dp = F.dropout(feature_vector, p=self.P)
+        output_dp = self.backbone.fc(feats_dp)
+        
+        # KL Divergence
+        if not self.detach:     # no detach
+            loss_kl_dp = kl_div_loss(pred=output, target=output_dp, t=self.T)
+        else:                   # detach
+            loss_kl_dp = kl_div_loss(pred=output, target=output_dp.detach(), t=self.T)
+        loss_kl = (self.T**2)*loss_kl_dp
+
+        # total loss
+        losses['loss_kl'] = loss_kl
+        losses['loss_total'] += self.lam_sdd*loss_kl
 
         return losses, None
 
 class CS_KD(BaseMethod):
-    def __init__(self, args, backbone: Module) -> None:
+    def __init__(self, args: Config, backbone: Module) -> None:
         super().__init__(args, backbone)
-        self.beta = args.beta
+        self.lam_kd = args.lam_kd
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Tensor]:
         batch_size = x.size(0)
@@ -221,17 +251,17 @@ class CS_KD(BaseMethod):
             outputs_cls, _ = self.backbone(x[batch_size//2:], return_feat=True)
         loss_kl = (4.0**2)*kl_div_loss(output, outputs_cls.detach(), t=4.0)
 
-        loss_total = loss_ce + self.beta*loss_kl
+        loss_total = loss_ce + self.lam_kd*loss_kl
 
         return ({'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_total':loss_total},
                 make_feature_vector(feats[-1]) )
 
 class CS_KD_Dropout(CS_KD):
-    def __init__(self, args, backbone: Module) -> None:
+    def __init__(self, args: Config, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.T = args.t
         self.P = args.p
-        self.alpha = args.alpha
+        self.lam_sdd = args.lam_sdd
         self.detach = args.detach
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], List[Tensor]]:
@@ -252,14 +282,14 @@ class CS_KD_Dropout(CS_KD):
         loss_kl_dp = (self.T**2)*(loss_kl_dp1 + loss_kl_dp2)
 
         losses['loss_kl_dropout'] = loss_kl_dp
-        losses['loss_total'] += self.alpha*loss_kl_dp
+        losses['loss_total'] += self.lam_sdd*loss_kl_dp
 
         return losses, None
 
 class DDGSD(BaseMethod):
-    def __init__(self, args, backbone: Module) -> None:
+    def __init__(self, args: Config, backbone: Module) -> None:
         super().__init__(args, backbone)
-        self.beta = args.beta
+        self.lam_kd = args.lam_kd
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Tensor]:
         batch_size = x.shape[0] // 2
@@ -288,16 +318,16 @@ class DDGSD(BaseMethod):
         loss_mmd = F.mse_loss(feat_1, feat_2, reduction='sum')
 
         # total loss
-        loss_total = loss_ce + self.beta*loss_kl + 0.005*loss_mmd
+        loss_total = loss_ce + self.lam_kd*loss_kl + 0.005*loss_mmd
 
         return {'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_mmd':loss_mmd, 'loss_total':loss_total}, feats
 
 class DDGSD_Dropout(DDGSD):
-    def __init__(self, args, backbone: Module) -> None:
+    def __init__(self, args: Config, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.T = args.t
         self.P = args.p
-        self.alpha = args.alpha
+        self.lam_sdd = args.lam_sdd
         self.detach = args.detach
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
@@ -319,15 +349,15 @@ class DDGSD_Dropout(DDGSD):
         loss_kl_dp = (self.T**2)*(loss_kl_dp1 + loss_kl_dp2)
 
         losses['loss_kl_dropout'] = loss_kl_dp
-        losses['loss_total'] += self.alpha*loss_kl_dp
+        losses['loss_total'] += self.lam_sdd*loss_kl_dp
 
         return losses, None
 
 
 class BYOT(BaseMethod):
-    def __init__(self, args, backbone: nn.Module) -> None:
+    def __init__(self, args: Config, backbone: nn.Module) -> None:
         super().__init__(args, backbone)
-        self.beta = args.beta
+        self.lam_kd = args.lam_kd
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
 
@@ -356,17 +386,17 @@ class BYOT(BaseMethod):
         feature_loss_3 = F.mse_loss(middle3_fea, final_fea.detach())
         feature_loss = (feature_loss_1 + feature_loss_2 + feature_loss_3)
 
-        loss_total = loss_ce + self.beta*(0.9*middle_loss + 0.1*loss_kl_btw_blk + 0.000001*feature_loss) 
+        loss_total = loss_ce + self.lam_kd*(0.9*middle_loss + 0.1*loss_kl_btw_blk + 0.000001*feature_loss) 
 
         return {'loss_ce':loss_ce, 'loss_kl':middle_loss, 'loss_mmd':loss_kl_btw_blk, 'loss_total':loss_total}, final_fea
 
 
 class BYOT_Dropout(BYOT):
-    def __init__(self, args, backbone: nn.Module) -> None:
+    def __init__(self, args: Config, backbone: nn.Module) -> None:
         super().__init__(args, backbone)
         self.T = args.t
         self.P = args.p
-        self.alpha = args.alpha
+        self.lam_sdd = args.lam_sdd
         self.detach = args.detach
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], List[Tensor]]:
@@ -387,15 +417,15 @@ class BYOT_Dropout(BYOT):
         loss_kl_dp = (self.T**2)*(loss_kl_dp1 + loss_kl_dp2)
 
         losses['loss_kl_dropout'] = loss_kl_dp
-        losses['loss_total'] += self.alpha*loss_kl_dp
+        losses['loss_total'] += self.lam_sdd*loss_kl_dp
 
         return losses, None
 
 
 class DML(BaseMethod):
-    def __init__(self, args, backbone: Module, backbone2: Module =None) -> None:
+    def __init__(self, args: Config, backbone: Module, backbone2: Module =None) -> None:
         super().__init__(args, backbone)
-        self.beta = args.beta
+        self.lam_kd = args.lam_kd
         self.backbone2 = backbone2
         self.set_optimizer()
 
@@ -412,7 +442,7 @@ class DML(BaseMethod):
 
         loss_kl = 3.0**2 * (loss_kl_12 + loss_kl_21)
 
-        loss_total = loss_ce + self.beta*loss_kl
+        loss_total = loss_ce + self.lam_kd*loss_kl
 
         return ({'loss_ce':loss_ce, 'loss_kl':loss_kl, 'loss_total':loss_total},
                 [make_feature_vector(feats_1[-1]),
@@ -420,11 +450,11 @@ class DML(BaseMethod):
 
 
 class DML_Dropout(DML):
-    def __init__(self, args, backbone: Module, backbone2: Module=None) -> None:
+    def __init__(self, args: Config, backbone: Module, backbone2: Module=None) -> None:
         super().__init__(args, backbone, backbone2)
         self.T = args.t
         self.P = args.p
-        self.alpha = args.alpha
+        self.lam_sdd = args.lam_sdd
         self.detach = args.detach
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
@@ -445,17 +475,17 @@ class DML_Dropout(DML):
         loss_kl_dp = (self.T**2)*(loss_kl_dp1 + loss_kl_dp2)
 
         losses['loss_kl_dropout'] = loss_kl_dp
-        losses['loss_total'] += self.alpha*loss_kl_dp
+        losses['loss_total'] += self.lam_sdd*loss_kl_dp
 
         return losses, None
 
 
 class DML_Dropout_V1(DML):
-    def __init__(self, args, backbone: Module, backbone2: Module) -> None:
+    def __init__(self, args: Config, backbone: Module, backbone2: Module) -> None:
         super().__init__(args, backbone, backbone2)
         self.T = args.t
         self.P = args.p
-        self.alpha = args.alpha
+        self.lam_sdd = args.lam_sdd
         self.detach = args.detach
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
@@ -476,16 +506,16 @@ class DML_Dropout_V1(DML):
         loss_kl_dp = (self.T**2)*(loss_kl_dp1 + loss_kl_dp2)
 
         losses['loss_kl_dropout'] = loss_kl_dp
-        losses['loss_total'] += self.alpha*loss_kl_dp
+        losses['loss_total'] += self.lam_sdd*loss_kl_dp
 
         return losses, None
 
 class Base_Dropout(BaseMethod):
-    def __init__(self, args, backbone: Module) -> None:
+    def __init__(self, args: Config, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.T = args.t
         self.P = args.p
-        self.alpha = args.alpha
+        self.lam_sdd = args.lam_sdd
         self.detach = args.detach
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
@@ -500,16 +530,16 @@ class Base_Dropout(BaseMethod):
         # total loss
         losses = {}
         losses['loss_dropout'] = loss_dropout
-        losses['loss_total'] = self.alpha*loss_dropout
+        losses['loss_total'] = self.lam_sdd*loss_dropout
 
         return losses, None
 
 class Base_Dropout_v2(BaseMethod):
-    def __init__(self, args, backbone: Module) -> None:
+    def __init__(self, args: Config, backbone: Module) -> None:
         super().__init__(args, backbone)
         self.T = args.t
         self.P = args.p
-        self.alpha = args.alpha
+        self.lam_sdd = args.lam_sdd
         self.detach = args.detach
 
     def calculate_loss(self, x: Tensor, y: Tensor) -> Tuple[Dict[str, Tensor], Any]:
@@ -523,7 +553,7 @@ class Base_Dropout_v2(BaseMethod):
 
         # total loss
         losses['loss_dropout'] = loss_dropout
-        losses['loss_total'] += self.alpha*loss_dropout
+        losses['loss_total'] += self.lam_sdd*loss_dropout
 
         return losses, None
 
@@ -541,7 +571,7 @@ class LabelSmoothingCrossEntropy(nn.Module):
         return loss.mean()
 
 class BaseMethod_LS(BaseMethod):
-    def __init__(self, args, backbone: Module) -> None:
+    def __init__(self, args: Config, backbone: Module) -> None:
         super().__init__(args, backbone)
 
     def set_optimizer(self) -> None:
@@ -549,7 +579,7 @@ class BaseMethod_LS(BaseMethod):
         self.criterion_ce = LabelSmoothingCrossEntropy()
         
 class SD_Dropout_LS(SD_Dropout):
-    def __init__(self, args, backbone: Module) -> None:
+    def __init__(self, args: Config, backbone: Module) -> None:
         super().__init__(args, backbone)
 
     def set_optimizer(self) -> None:

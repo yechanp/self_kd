@@ -1,5 +1,5 @@
 """
-2021-05-23
+2022-04-01
 Hyoje Lee
 
 python main.py --method BaseMethod      --backbone resnet18_cifar --seed 41
@@ -17,7 +17,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 # custom packages
 from dataset import make_loader
-from utils import cal_num_parameters, set_args, do_seed, log_optim, AverageMeter, ProgressMeter, Logger
+from utils.utils import cal_num_parameters, do_seed, log_optim, AverageMeter, ProgressMeter, Logger
+from utils.config import Config
 from models import methods
 import backbones
 
@@ -64,7 +65,7 @@ def update_log(loss_meters: Dict[str, AverageMeter],
     return meters, progress
 
 # deal with params
-def parser_arg():
+def parser_arg() -> Config:
     parser = argparse.ArgumentParser()
     ## 
     parser.add_argument('--exp_name', type=str, default='', help="the name of experiment")
@@ -83,17 +84,17 @@ def parser_arg():
                                                                                                                      ' | '.join(BACKBONE_NAMES)+
                                                                                                                      ' (default: resnet18)')
     parser.add_argument('--epochs', type=int, default=200, metavar='N', help="epoch (default: 200)")
-    parser.add_argument('--batch_size', type=int, default=128, metavar='N', help="batch size (default: 128)")
     parser.add_argument('-t', type=float, default=3.0, help="temperature (default: 3.0)")
     parser.add_argument('-p', type=float, default=0.5, help="the probability of dropout (default: 0.5)")
-    parser.add_argument('--alpha', type=float, default=0.1, help="the weight for SD_Dropout loss (default: 0.1)")
-    parser.add_argument('--beta', type=float, default=1.0, help="the weight for the method loss (default: 1.0)")
+    parser.add_argument('--lam_sdd', type=float, default=0.1, help="the weight for SD_Dropout loss (default: 0.1)")
+    parser.add_argument('--lam_kd', type=float, default=1.0, help="the weight for the method loss (default: 1.0)")
     parser.add_argument('--detach', dest='detach', action='store_true', help="detach or not when calculate KL loss using Dropout (default: False)")
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
+    parser.add_argument('-f', '--force', dest='force', action='store_true', help="Run by force (default: False)")
 
     args, _ = parser.parse_known_args()
 
-    return set_args(args)
+    return Config(args)
 
 if __name__ == "__main__":
         
@@ -111,21 +112,21 @@ if __name__ == "__main__":
     # random seed
     if args.seed:    
         do_seed(args.seed)
-        logger.log(f'The fixed seed number is {args.seed}')
+        logger(f'The fixed seed number is {args.seed}')
 
     ############### Load Data ###############
     if 'CS_KD' in args.method:
         trainloader, testloader = make_loader(args.dataset, batch_size=args.batch_size, aug=args.aug, 
                                               sampler='CS_KD', num_workers=args.num_workers)
-        logger.log('Dataset for Class-wise Self KD')
+        logger('Dataset for Class-wise Self KD')
     elif 'DDGSD' in args.method:
         trainloader, testloader = make_loader(args.dataset, batch_size=args.batch_size, aug=args.aug, 
                                               sampler='DDGSD', num_workers=args.num_workers)
-        logger.log('Dataset for Data Distortion Guided Self Distillation')
+        logger('Dataset for Data Distortion Guided Self Distillation')
     else:
         trainloader, testloader = make_loader(args.dataset, batch_size=args.batch_size, aug=args.aug,
                                               num_workers=args.num_workers)
-        logger.log('Dataset for the method without sampler')
+        logger('Dataset for the method without sampler')
 
     ############### Define Model ###############
     print("init neural networks")
@@ -140,7 +141,7 @@ if __name__ == "__main__":
         backbone2.cuda()
         model = methods.__dict__[args.method](args, backbone, backbone2)
     else:
-        logger.log(f'{args.method} is not available')
+        logger(f'{args.method} is not available')
         raise NotImplementedError()
 
     if torch.cuda.is_available():
@@ -150,8 +151,8 @@ if __name__ == "__main__":
     if args.resume:
         state = torch.load(args.resume)
         epoch_init = state['epoch']
-        logger.log(f'Re-Training, Load Model {args.resume}')
-        logger.log(f'Load at epoch {epoch_init}')
+        logger(f'Re-Training, Load Model {args.resume}')
+        logger(f'Load at epoch {epoch_init}')
         model.load_state_dict(state['state_dict'])
         model.optimizer.load_state_dict(state['optimizer'])
         epoch_init += 1
@@ -177,7 +178,7 @@ if __name__ == "__main__":
         
         ## log
         meters, progress = update_log(loss_meters, meters, progress, writer)
-        logger.log(progress.display(epoch), consol=False)
+        logger(progress.display(epoch), consol=False)
 
         ## save
         state = {'args' : args,
@@ -188,7 +189,7 @@ if __name__ == "__main__":
         if max_acc < eval_acc:
             max_acc = eval_acc
             filename = os.path.join(args.save_folder, 'checkpoint_best.pth.tar')
-            logger.log('#'*20+'Save Best Model'+'#'*20)
+            logger('#'*20+'Save Best Model'+'#'*20)
             # torch.save(state, filename)
         
         end = time.time()
