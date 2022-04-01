@@ -188,9 +188,7 @@ class Net(nn.Module):
         x = self.fc2(x)
         return x
 
-def active_learning(hyperparams: ExperimentConfig):
-    use_cuda = torch.cuda.is_available()
-    seed_num = hyperparams.seed
+def do_seed(seed_num):
     random.seed(seed_num)
     np.random.seed(seed_num)
     torch.manual_seed(seed_num)
@@ -200,6 +198,11 @@ def active_learning(hyperparams: ExperimentConfig):
     # It could be slow
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+def active_learning(hyperparams: ExperimentConfig):
+    use_cuda = torch.cuda.is_available()
+    seed_num = hyperparams.seed
+    do_seed(seed_num)
     if not use_cuda:
         print("warning, the experiments would take ages to run on cpu")
 
@@ -209,25 +212,26 @@ def active_learning(hyperparams: ExperimentConfig):
     # Get our model.
     heuristic = get_heuristic(hyperparams.heuristic)
     criterion = CrossEntropyLoss()
-    model = Net()
+    model = patch_module(Net())
+    model_active = patch_module(Net())
 
-    # change dropout layer to MCDropout
-    model = patch_module(model)
 
     if use_cuda:
         model.cuda()
+        model_active.cuda()
 
     # Wraps the model into a usable API.
     if hyperparams.SDD:
-        model = ModelWrapper_SDD(model, criterion)
+        model_active = ModelWrapper_SDD(model_active, criterion)
     else:
-        model = ModelWrapper(model, criterion)
+        model_active = ModelWrapper(model_active, criterion)
+    model = ModelWrapper(model, criterion)
     
 
     # for ActiveLearningLoop we use a smaller batchsize
     # since we will stack predictions to perform MCDropout.
     active_loop = ActiveLearningLoop(active_set,
-                                     model.predict_on_dataset,
+                                     model_active.predict_on_dataset,
                                      heuristic,
                                      hyperparams.query_size,
                                      batch_size=1,
@@ -247,13 +251,19 @@ def active_learning(hyperparams: ExperimentConfig):
             break
         # Load the initial weights.
         model.load_state_dict(init_weights)
+        model_active.load_state_dict(init_weights)
         optimizer = optim.SGD(model.model.parameters(), lr=hyperparams.lr)
+        optimizer_active = optim.SGD(model_active.model.parameters(), lr=hyperparams.lr)
 
         # Train the model on the currently labelled dataset.
         _ = model.train_on_dataset(active_set, optimizer=optimizer, batch_size=hyperparams.batch_size,
                                    use_cuda=use_cuda, epoch=hyperparams.training_duration)
 
+        _ = model_active.train_on_dataset(active_set, optimizer=optimizer_active, batch_size=hyperparams.batch_size,
+                                   use_cuda=use_cuda, epoch=hyperparams.training_duration)
+
         # Get test NLL!
+        do_seed(seed_num)
         with torch.no_grad():
     #         model.test_on_dataset(test_set, hyperparams.batch_size, use_cuda,
     #                               average_predictions=hyperparams.iterations)

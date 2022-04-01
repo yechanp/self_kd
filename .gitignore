@@ -10,6 +10,9 @@ __pycache__
 *.csv
 *.ipynb
 *.bat
+*.npy
+*.png
+_5_gradCAM.py
 
 ## folder
 _old

@@ -10,7 +10,7 @@ class Config(object):
     def __init__(self, args) -> None:
 
         # training setting
-        self.args = args
+        # self.args = args
         self.gpu: str = args.gpu
         self.exp_name: str = args.exp_name
         self.seed: int = args.seed
@@ -34,6 +34,7 @@ class Config(object):
         self.init_var_ce: float = args.init_var_ce
         self.detach: bool = args.detach
         self.aug: bool = args.aug
+        self.force: bool = args.force
 
         self.prefetch: int = 2
 
@@ -109,6 +110,8 @@ class Config(object):
             self.backbone = 'byot_' + self.backbone
         if 'CIFAR' in self.dataset and 'cifar' not in self.backbone:
             self.backbone = self.backbone + '_cifar'
+
+        if 'CIFAR' in self.dataset:
             self.batch_size = 128
         else:
             self.batch_size = 32
@@ -123,14 +126,19 @@ class Config(object):
 
         if os.path.exists(self.save_folder) or os.path.exists(self.tb_folder):
             print(f"Current Experiment is : {self.exp_name}")
-            isdelete = input("delete exist exp dir (y/n): ")
-            if isdelete == "y":
-                if os.path.exists(self.save_folder): shutil.rmtree(self.save_folder) 
-                if os.path.exists(self.tb_folder):   shutil.rmtree(self.tb_folder) 
-            elif isdelete == "n":
-                raise FileExistsError
+            if not self.force:
+                isdelete = input("delete exist exp dir (y/n): ")
+                if isdelete == "y":
+                    if os.path.exists(self.save_folder): shutil.rmtree(self.save_folder) 
+                    if os.path.exists(self.tb_folder):   shutil.rmtree(self.tb_folder) 
+                elif isdelete == "n":
+                    raise FileExistsError
+                else:
+                    raise FileExistsError
             else:
-                raise FileExistsError
+                print("#"*50)
+                print("Run by force")
+                print("#"*50)
 
         os.makedirs(self.save_folder, exist_ok=True)
         os.makedirs(self.tb_folder, exist_ok=True)

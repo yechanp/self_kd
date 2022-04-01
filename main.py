@@ -98,6 +98,7 @@ def parser_arg() -> Config:
     parser.add_argument('--init_var_ce', type=float, default=0.0, help="the initial variance in uncertainty (default: 0.0)")
     parser.add_argument('--detach', dest='detach', action='store_true', help="detach or not when calculate KL loss using Dropout (default: False)")
     parser.add_argument('--woAug', dest='aug', action='store_false', help="data augmentation or not (default: True)")
+    parser.add_argument('-f', dest='force', action='store_true', help="run by force (default: False)")
 
     args, _ = parser.parse_known_args()
 
