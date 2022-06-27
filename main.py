@@ -8,7 +8,7 @@ python main.py --method CS_KD_Dropout   --backbone resnet18_cifar --seed 41
 
 """
 # imports base packages
-import os
+import os, sys
 import time
 import argparse
 from typing import Dict, Tuple
@@ -46,7 +46,8 @@ def set_log(epochs: int, log_names=None) -> Tuple[Dict[str, AverageMeter], Progr
 def update_log(loss_meters: Dict[str, AverageMeter], 
                meters: Dict[str, AverageMeter], 
                progress: ProgressMeter, 
-               writer: SummaryWriter) -> ProgressMeter:
+               writer: SummaryWriter,
+               end) -> Tuple[Dict[str, AverageMeter], ProgressMeter]:
     if len(meters.keys()) != (len(loss_meters.keys())+2):
         meters, progress = set_log(progress.num_batchs, log_names=loss_meters.keys())
     meters['epoch_time'].update(time.time() - end)
@@ -107,6 +108,7 @@ if __name__ == "__main__":
 
     # logger
     logger = Logger(args.logfile)
+    logger(' '.join(sys.argv))
     logger.print_args(args)
 
     # random seed
@@ -177,7 +179,7 @@ if __name__ == "__main__":
         eval_acc = model.evaluation(testloader)
         
         ## log
-        meters, progress = update_log(loss_meters, meters, progress, writer)
+        meters, progress = update_log(loss_meters, meters, progress, writer, end)
         logger(progress.display(epoch), consol=False)
 
         ## save

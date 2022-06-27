@@ -1,7 +1,6 @@
 import os
 import yaml
 import shutil
-from utils.utils import Logger
 
 class Config(object):
     """ default param setting
@@ -51,10 +50,12 @@ class Config(object):
                     'lam_kd': 'Lambda_Dropout',
                 })
         elif 'Dropout' in self.method:
+            if self.method == 'SD_Dropout':
+                self.hyper_param.pop('lam_kd')
             self.hyper_param.update({
                 'p': 'P',
-                'detach': 'Detach',
                 'lam_sdd': 'Lambda_SDD',
+                'detach': 'Detach',
             })
 
         if 'resnet18' not in self.backbone:
